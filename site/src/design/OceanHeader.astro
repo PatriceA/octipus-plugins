@@ -1,0 +1,13 @@
+---
+// `ocean-header`, as on octipus.cc: the brand, the navigation, one pill
+// action and the mobile menu. It floats into a glass pill once the page
+// scrolls (the inline script in OceanLayout.astro).
+import OceanNavigation from './OceanNavigation.astro';
+---
+<header class="ocean-header" aria-label="Site header">
+  <a class="ocean-brand" href="/" aria-label="Octipus plugins home"><img src="/design/ocean/mobile-mark.webp" alt="" width="42" height="42"><span>Octipus</span><small>plugins</small></a>
+  <OceanNavigation />
+  <a class="ocean-get-started" href="/publish/">Publish a plugin <span aria-hidden="true">↗</span></a>
+  <button class="ocean-menu" aria-expanded="false" aria-controls="ocean-navigation-mobile" type="button">Menu <span aria-hidden="true">＋</span></button>
+  <OceanNavigation mobile />
+</header>

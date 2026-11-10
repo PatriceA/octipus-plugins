@@ -1,0 +1,129 @@
+---
+// One plugin: its README, screenshots, what it asks for (in the admin page's
+// words), its versions and changelog, author, licence, signature, and how to
+// install it.
+import OceanLayout from '../../design/OceanLayout.astro';
+import { MARKET_REPO } from '../../design/links.mjs';
+import { CATEGORY_LABELS, loadIndex, pluginsFrom, readmeImages, sitePath } from '../../lib/data.mjs';
+import { renderMarkdown } from '../../lib/markdown.mjs';
+import { asksFor } from '../../../../scripts/lib/asks-for.mjs';
+import '../../styles/market.css';
+
+export function getStaticPaths() {
+  return pluginsFrom(loadIndex()).map((plugin) => ({ params: { name: plugin.name }, props: { plugin } }));
+}
+
+const { plugin } = Astro.props;
+const l = plugin.latest;
+const images = readmeImages(plugin);
+const source = `${MARKET_REPO}/blob/main/plugins/${plugin.name}/`;
+const readmeHtml = renderMarkdown(plugin.readme, { images, linkBase: source });
+const changelogHtml = renderMarkdown(plugin.changelog, { images: {}, linkBase: source, headingShift: 2 });
+const sections = asksFor(l.permissions, { name: plugin.name });
+const date = (iso) => (iso ? new Date(iso).toISOString().slice(0, 10) : '');
+const short = (h) => String(h ?? '').replace(/^sha256:/, '').slice(0, 12);
+const title = l.title ?? plugin.name;
+const config = JSON.stringify({ plugins: {
+  registries: [{ name: 'Octipus', url: 'https://plugins.octipus.cc/index.json', publisher: 'Octipus' }],
+  trustedPublishers: [{ name: 'Octipus', publicKey: '<the PEM of /keys/octipus.pub>' }],
+} }, null, 2);
+---
+<OceanLayout title={`${title} — Octipus plugins`} description={l.summary || l.description} path={`/${plugin.name}/`}>
+  <section class="plugin-hero ocean-shell" aria-labelledby="plugin-title">
+    <div>
+      <p class="ocean-eyebrow"><span></span> {CATEGORY_LABELS[l.category] ?? l.category ?? 'Plugin'}</p>
+      <h1 id="plugin-title">
+        {plugin.icon ? <img class="plugin-icon" src={plugin.icon} alt="" width="64" height="64"> : <span class="plugin-icon placeholder" aria-hidden="true">{title.slice(0, 1)}</span>}
+        {title}
+      </h1>
+      <p class="summary">{l.summary || l.description}</p>
+      <ul class="facts">
+        <li>Version <strong>{l.version}</strong></li>
+        {l.author && <li>By <strong>{l.author.url ? <a href={l.author.url} rel="nofollow noopener noreferrer">{l.author.name}</a> : l.author.name}</strong></li>}
+        {l.license && <li>Licence <strong>{l.license}</strong></li>}
+        {l.homepage && <li><a class="ocean-source" href={l.homepage} rel="nofollow noopener noreferrer">Homepage ↗</a></li>}
+        <li><a class="ocean-source" href={source}>Source ↗</a></li>
+        {(l.tags ?? []).map((t) => <li class="tag">#{t}</li>)}
+      </ul>
+    </div>
+    <p class="signed glass" data-signed>Reviewed and signed by {l.publisher ?? 'Octipus'}</p>
+  </section>
+
+  <div class="plugin-body ocean-shell">
+    <div>
+      {l.deprecated && <p class="notice" role="note"><strong>Deprecated:</strong> {l.deprecated}</p>}
+      {plugin.allRevoked && <p class="notice" role="alert"><strong>Revoked:</strong> {l.revoked?.reason ?? 'this plugin was withdrawn'}. Octipus refuses to install or start it.</p>}
+      {plugin.screenshots.length > 0 && (
+        <section aria-labelledby="shots-title">
+          <h2 id="shots-title">Screenshots</h2>
+          <ul class="shots">{plugin.screenshots.map((s, i) => <li><img src={s} alt={`${title}, screenshot ${i + 1}`} loading="lazy"></li>)}</ul>
+        </section>
+      )}
+      <section aria-labelledby="readme-title">
+        <h2 id="readme-title" class="sr-only">About {title}</h2>
+        <div class="prose" set:html={readmeHtml || `<p>${l.description ?? ''}</p>`} />
+      </section>
+      <section aria-labelledby="versions-title">
+        <h2 id="versions-title">Versions</h2>
+        <table class="versions">
+          <thead><tr><th>Version</th><th>Published</th><th>Tarball</th><th>Signature</th></tr></thead>
+          <tbody>
+            {plugin.versions.map((v) => (
+              <tr>
+                <td><strong>{v.version}</strong>{v.revoked && <span class="warn"> · revoked: {v.revoked.reason}</span>}</td>
+                <td>{date(v.publishedAt)}</td>
+                <td><a class="ocean-source" href={sitePath(v.url)}>download</a> <span class="mono" title={v.sha256}>sha256 {short(v.sha256)}…</span></td>
+                <td><span class="mono" title={v.keyId}>{v.keyId ? `${v.keyId.slice(0, 20)}…` : ''}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      {changelogHtml && (
+        <section aria-labelledby="changelog-title">
+          <h2 id="changelog-title">Changelog</h2>
+          <div class="prose" set:html={changelogHtml} />
+        </section>
+      )}
+    </div>
+
+    <aside class="side" aria-label="Install and permissions">
+      <div class="panel glass" id="install">
+        <h2>Install in Octipus</h2>
+        <ol class="steps">
+          <li>In Octipus, open <strong>Admin → Plugins → Marketplace</strong>, find {title} and choose <strong>Install</strong>. Or from the command line: <code>octi plugin install {plugin.name}</code>.</li>
+          <li>It installs <strong>disabled</strong>. Read what it asks for (below): the admin page shows the same.</li>
+          <li><strong>Enable</strong> it. Enabling approves its content hash, its host API scopes and what it adds; an upgrade asks again.</li>
+          {(l.permissions?.network?.length ?? 0) > 0 || (l.permissions?.host?.length ?? 0) > 0 ? <li>Turn on the sandbox (<code>security.shellSandbox</code> <code>auto</code>) so its network hosts are enforced.</li> : null}
+        </ol>
+        <h3>An Octipus without the built-in marketplace</h3>
+        <p>Add the registry and the marketplace key to the config, then use <strong>Admin → Plugin packages → Browse</strong>:</p>
+        <pre class="mono">{config}</pre>
+        <p>The key is at <a class="ocean-source" href="/keys/octipus.pub">/keys/octipus.pub</a>; check it against <a class="ocean-source" href={`${MARKET_REPO}/tree/main/keys`}>keys/ in the repository</a>.</p>
+      </div>
+
+      <div class="panel glass asks" id="asks">
+        <h2>What it asks for</h2>
+        {sections.map((s) => (
+          <div data-asks={s.id}>
+            <h3>{s.title}</h3>
+            <p class="lead">{s.lead}</p>
+            {s.items.length > 0 && <ul>{s.items.map((it) => <li class={it.tone === 'warn' ? 'warn' : undefined}>{it.code && <code>{it.code}</code>} {it.text}</li>)}</ul>}
+            {s.notes.map((n) => (typeof n === 'string' ? <p class="note">{n}</p> : <p class={`note ${n.tone === 'warn' ? 'warn' : ''}`}>{n.text}</p>))}
+          </div>
+        ))}
+      </div>
+
+      <div class="panel glass" id="signature">
+        <h2>Signature</h2>
+        <p><strong>Reviewed and signed by {l.publisher ?? 'Octipus'}.</strong> The signature says this exact content passed the marketplace's checks and a maintainer's review. It does not say the code is safe: the sandbox, its declared hosts, your approvals and your permission rules still decide what it can do.</p>
+        <h3>Key id</h3>
+        <p class="mono">{l.keyId ?? 'not signed'}</p>
+        <h3>Content hash</h3>
+        <p class="mono">{l.contentHash}</p>
+        <h3>Tarball sha256</h3>
+        <p class="mono">{String(l.sha256 ?? '')}</p>
+      </div>
+    </aside>
+  </div>
+</OceanLayout>

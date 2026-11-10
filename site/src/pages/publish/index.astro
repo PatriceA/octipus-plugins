@@ -1,0 +1,33 @@
+---
+// The submission guide: CONTRIBUTING.md and the review checklist of the
+// repository, rendered here so there is one text for both.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import OceanLayout from '../../design/OceanLayout.astro';
+import { CONTRIBUTING, MARKET_REPO } from '../../design/links.mjs';
+import { repoRoot } from '../../lib/data.mjs';
+import { renderMarkdown } from '../../lib/markdown.mjs';
+import '../../styles/market.css';
+
+const read = (p) => readFileSync(join(repoRoot(), p), 'utf8');
+// Drop each file's own h1: the page has its title.
+const body = (md) => md.replace(/^# .*\n+/, '');
+const guide = renderMarkdown(body(read('CONTRIBUTING.md')), { linkBase: `${MARKET_REPO}/blob/main/`, headingShift: 0 });
+const checklist = renderMarkdown(body(read('docs/REVIEW-CHECKLIST.md')), { linkBase: `${MARKET_REPO}/blob/main/docs/`, headingShift: 1 });
+---
+<OceanLayout title="Publish a plugin — Octipus plugins" description="How to submit a plugin to the Octipus marketplace: a pull request with its source, the checks it goes through, the review and the signature." path="/publish/">
+  <section class="market-hero ocean-shell" aria-labelledby="publish-title">
+    <p class="ocean-eyebrow"><span></span> Anyone can propose a plugin</p>
+    <h1 id="publish-title">Publish a plugin.<br><span>Source in, signature out.</span></h1>
+    <p class="market-intro">Send a pull request with your plugin's source. CI checks it and posts what it asks for; a maintainer reviews it, and the key holder signs each version. That signature is the sign-off.</p>
+    <div class="ocean-actions market-actions">
+      <a class="explore-button" href={CONTRIBUTING}>CONTRIBUTING on GitHub <span aria-hidden="true">↗</span></a>
+      <a class="ocean-source" href={`${MARKET_REPO}/tree/main/plugins/_template`}>The template ↗</a>
+    </div>
+  </section>
+  <section class="page-prose ocean-shell">
+    <div class="prose" set:html={guide} />
+    <h2 id="checklist">The review checklist</h2>
+    <div class="prose" set:html={checklist} />
+  </section>
+</OceanLayout>

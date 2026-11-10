@@ -1,0 +1,76 @@
+---
+// The home page: search, categories and every plugin. The marketplace
+// launches empty, so the empty state is the first thing anyone sees.
+import OceanLayout from '../design/OceanLayout.astro';
+import { CONTRIBUTING } from '../design/links.mjs';
+import { CATEGORIES, CATEGORY_LABELS, loadIndex, pluginsFrom } from '../lib/data.mjs';
+import '../styles/market.css';
+
+const plugins = pluginsFrom(loadIndex());
+const used = new Set(plugins.map((p) => p.latest.category));
+const categories = CATEGORIES.filter((c) => used.has(c.id));
+const searchText = (p) => [p.latest.title, p.latest.summary, ...(p.latest.tags ?? []), p.name].join(' ').toLowerCase();
+---
+<OceanLayout title="Octipus plugins — reviewed and signed" description="Plugins for Octipus, reviewed and signed by Octipus: find one, see what it asks for, and install it in your workspace." path="/">
+  <section class="market-hero ocean-shell" aria-labelledby="hero-title">
+    <p class="ocean-eyebrow"><span></span> Reviewed. Signed. Yours to approve.</p>
+    <h1 id="hero-title">Plugins for Octipus.<br><span>Make it yours.</span></h1>
+    <p class="market-intro">Each plugin here was reviewed and signed by Octipus. It installs disabled, and runs only after you approve what it asks for.</p>
+    {plugins.length > 0 && (
+      <div class="finder" data-finder hidden>
+        <div class="search glass">
+          <label for="q">Search</label>
+          <input id="q" type="search" placeholder="Title, summary or tag" autocomplete="off" spellcheck="false">
+        </div>
+        {categories.length > 1 && (
+          <ul class="chips" aria-label="Categories">
+            <li><button class="chip" type="button" data-category="" aria-pressed="true">All</button></li>
+            {categories.map((c) => <li><button class="chip" type="button" data-category={c.id} aria-pressed="false">{c.label}</button></li>)}
+          </ul>
+        )}
+      </div>
+    )}
+  </section>
+
+  <section class="listing ocean-shell" aria-labelledby="listing-title">
+    <div class="listing-head">
+      <h2 id="listing-title">{plugins.length ? 'All plugins' : 'The marketplace'}</h2>
+      {plugins.length > 0 && <span class="count" data-count>{plugins.length} {plugins.length === 1 ? 'plugin' : 'plugins'}</span>}
+    </div>
+    {plugins.length === 0 ? (
+      <div class="empty glass" data-empty>
+        <h3>No plugins yet.</h3>
+        <p>Write one: a plugin is a small package with its own server, the tools it offers and what each one does. Send it as a pull request with its source; it is reviewed, signed and listed here.</p>
+        <div class="ocean-actions">
+          <a class="explore-button" href={CONTRIBUTING}>Read CONTRIBUTING <span aria-hidden="true">↗</span></a>
+          <a class="ocean-source" href="/publish/">How publishing works <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    ) : (
+      <>
+        <ul class="cards" data-cards>
+          {plugins.map((p) => (
+            <li data-plugin data-search={searchText(p)} data-category={p.latest.category ?? ''}>
+              <a class="card glass" href={`/${p.name}/`}>
+                <span class="card-top">
+                  {p.icon ? <img class="plugin-icon" src={p.icon} alt="" width="44" height="44" loading="lazy"> : <span class="plugin-icon placeholder" aria-hidden="true">{(p.latest.title ?? p.name).slice(0, 1)}</span>}
+                  <h3>{p.latest.title ?? p.name}</h3>
+                </span>
+                <p>{p.latest.summary}</p>
+                <span class="meta">
+                  <span>{CATEGORY_LABELS[p.latest.category] ?? p.latest.category}</span>
+                  <span>v{p.latest.version}</span>
+                  {(p.latest.tags ?? []).slice(0, 4).map((t) => <span class="tag">#{t}</span>)}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+        <p class="no-match" data-no-match hidden>No plugin matches. Try another word, or <a class="ocean-source" href={CONTRIBUTING}>write it</a>.</p>
+      </>
+    )}
+  </section>
+  {plugins.length > 0 && (
+    <script is:inline>(()=>{const f=document.querySelector("[data-finder]");if(!f)return;f.hidden=!1;const q=document.getElementById("q"),items=[...document.querySelectorAll("[data-plugin]")],chips=[...document.querySelectorAll("[data-category][aria-pressed]")],none=document.querySelector("[data-no-match]"),count=document.querySelector("[data-count]");let cat="";function run(){const words=q.value.toLowerCase().split(/\s+/).filter(Boolean);let n=0;for(const el of items){const ok=(!cat||el.dataset.category===cat)&&words.every(w=>el.dataset.search.includes(w));el.hidden=!ok;if(ok)n++}none.hidden=n>0;if(count)count.textContent=n+(n===1?" plugin":" plugins")}q.addEventListener("input",run);for(const c of chips)c.addEventListener("click",()=>{cat=c.dataset.category;for(const o of chips)o.setAttribute("aria-pressed",String(o===c));run()})})();</script>
+  )}
+</OceanLayout>

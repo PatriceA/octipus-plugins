@@ -1,0 +1,31 @@
+/*
+ * The octipus.cc design tokens ("ocean"), copied from the published site
+ * (https://octipus.cc/). This folder stands in for the shared design source;
+ * see README.md here.
+ */
+:root {
+  color-scheme: dark;
+  --deep: #071923;
+  --panel: #0b222d;
+  --line: #29424a;
+  --ink: #edf4ed;
+  --muted: #a6bec3;
+  --glass: #92c9c5;
+  --coral: #efa99b;
+  --cream: #f0eee5;
+  --max: 1180px;
+
+  /* Derived surfaces, as octipus.cc uses them. */
+  --sea: #c3dfd3;
+  --sea-hover: #deeee6;
+  --sea-ink: #102c30;
+  --soft: #d4e1dd;
+  --panel-glass: #0c2633ed;
+  --panel-border: #a4c9c12e;
+  --shadow: 0 12px 50px #0003;
+  --radius-sm: 10px;
+  --radius: 12px;
+  --radius-lg: 13px;
+  --radius-pill: 100px;
+  --font: Manrope, ui-sans-serif, system-ui, sans-serif;
+}

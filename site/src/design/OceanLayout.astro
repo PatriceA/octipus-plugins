@@ -1,0 +1,48 @@
+---
+// The page frame of plugins.octipus.cc: octipus.cc's head, atmosphere,
+// header and footer around a page's content.
+//
+// No cookies, no analytics, no external scripts: the only remote resource is
+// the Manrope font from Google Fonts, and the two scripts are inline (their
+// hashes go into the CSP the build writes to _headers).
+import './tokens.css';
+import './ocean.css';
+import OceanAtmosphere from './OceanAtmosphere.astro';
+import OceanFooter from './OceanFooter.astro';
+import OceanHeader from './OceanHeader.astro';
+
+interface Props { title: string; description: string; path: string }
+const { title, description, path } = Astro.props;
+const canonical = new URL(path, 'https://plugins.octipus.cc').href;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title}</title>
+    <meta name="description" content={description}>
+    <link rel="canonical" href={canonical}>
+    <meta property="og:title" content={title}>
+    <meta property="og:description" content={description}>
+    <meta property="og:type" content="website">
+    <meta property="og:url" content={canonical}>
+    <meta name="theme-color" content="#061b25">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <link rel="icon" href="/favicon.ico" sizes="32x32">
+    <link rel="apple-touch-icon" href="/icons/mobile-180.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="ocean-example open-water">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <OceanAtmosphere />
+    <OceanHeader />
+    <main id="main">
+      <slot />
+    </main>
+    <OceanFooter />
+    <script is:inline>(()=>{const r=document.querySelector(".ocean-header");let d=!1;function a(){r?.classList.toggle("is-floating",window.scrollY>72),d=!1}window.addEventListener("scroll",()=>{d||(d=!0,requestAnimationFrame(a))},{passive:!0});a();const n=document.querySelector(".ocean-menu"),e=document.querySelector("#ocean-navigation-mobile");function i(t=!1){e&&(e.hidden=!0),n?.setAttribute("aria-expanded","false"),t&&n?.focus()}n?.addEventListener("click",()=>{e&&(e.hidden=!e.hidden,n.setAttribute("aria-expanded",String(!e.hidden)))});e?.querySelectorAll("a").forEach(t=>t.addEventListener("click",()=>i()));document.addEventListener("keydown",t=>{t.key==="Escape"&&e&&!e.hidden&&i(!0)});window.matchMedia("(min-width: 801px)").addEventListener("change",t=>{t.matches&&i()});const m=document.querySelector(".motion-toggle");m?.addEventListener("click",()=>{const p=document.documentElement.classList.toggle("motion-paused");m.setAttribute("aria-pressed",String(p));m.textContent=p?"Play motion":"Pause motion"})})();</script>
+  </body>
+</html>

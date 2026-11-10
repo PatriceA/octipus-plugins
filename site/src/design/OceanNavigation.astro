@@ -1,0 +1,9 @@
+---
+// `ocean-navigation`: the desktop navigation (or, with mobile, the menu's).
+import { NAV } from './links.mjs';
+interface Props { mobile?: boolean }
+const { mobile = false } = Astro.props;
+---
+{mobile
+  ? <nav id="ocean-navigation-mobile" aria-label="Mobile navigation" hidden>{NAV.map((n) => <a href={n.href} aria-current={n.current ? 'page' : undefined}>{n.mobile}</a>)}<a href="/publish/">Publish a plugin ↗</a></nav>
+  : <nav class="ocean-navigation" aria-label="Main navigation">{NAV.map((n) => <a href={n.href} aria-current={n.current ? 'page' : undefined}>{n.label}</a>)}</nav>}
