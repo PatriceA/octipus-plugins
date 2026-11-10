@@ -49,6 +49,17 @@ screenshots you name in `marketplace.json` live in the directory too.
 - **Runtime state in `OCTIPUS_PLUGIN_DATA_DIR`**, never in the package
   directory (it is read-only under the sandbox and pinned by hash).
 - **No `octipus-plugin.sig`** in the submission: the key holder signs.
+- **Regular files only.** A symbolic link or a submodule anywhere in the
+  pull request fails it, as does a legacy plugin (`plugin.json` without
+  `octipus-plugin.json`: convert it with `octi plugin convert`).
+- **A plain version** (`1.2.0`, `1.2.0-rc.1`), never with build metadata
+  (`1.2.0+x` would compare equal to `1.2.0`), and a name that is not reserved
+  (`keys`, `dl`, `publish`, `index`, … are paths of the site).
+- **A plain title, summary and author name:** no bidi controls or invisible
+  characters (refused); a word mixing Latin with a lookalike script is
+  flagged for the reviewer.
+- **README.md at most 64 KB, CHANGELOG.md at most 32 KB:** they ride in the
+  signed index, which a host reads up to 1 MB.
 - **A new version for every change** to the package. A version is never
   republished with other content, and a new version is greater than the
   published one. `marketplace.json` alone can change without a version bump.
@@ -60,28 +71,35 @@ screenshots you name in `marketplace.json` live in the directory too.
 
 You need Node 24 and a checkout of
 [Octipus](https://github.com/PatriceA/octipus) next to this repository
-(`../octipus`, with `npm ci` run in it), or `OCTIPUS` pointing at one:
+(`../octipus`, at the commit in `OCTIPUS_REF`, clean, with
+`npm ci --ignore-scripts` run in it), or `OCTIPUS` pointing at one:
 
 ```sh
-npm ci
-npm run check -- --plugin <name> --smoke
+npm ci --ignore-scripts
+git commit …                                         # the check reads your commits, not the working tree
+npm run check -- --plugin <name>                     # the data checks, as CI's `check` job
+node scripts/test-plugins.mjs --plugin <name>        # your tests and a smoke run, in bwrap, as CI's `test` job
 ```
 
-This runs what CI runs: `octi plugin validate`, the `marketplace.json`
-schema, the README and changelog, your tests, a smoke run of your server
-(`initialize` and `tools/list`, under bwrap when it is installed), the size
-limits, the version against `published.json`, and the permissions summary.
-It writes `check-summary.md`.
+The first runs `octi plugin validate`, the `marketplace.json` schema and text
+rules, the README and changelog, the size limits, the version against
+`published.json`, and the permissions summary, and writes
+`check-summary.md`. The second runs `npm test --ignore-scripts` and starts
+your server (`initialize`, `tools/list`) in a bwrap sandbox with no network
+and a read-only system: your tests must not need the network or write
+outside their own directory and `/tmp`.
 
 ## 4. Open the pull request
 
-CI posts the summary as a comment on the pull request. For a new plugin it
-lists everything the plugin asks for; for an update, only what changed since
-the published version. Anything new or wider (a host scope, a network host, a
-tool effect, a contribution, a page, `trustedInput`, the runtime) adds the
-label `needs-security-review`, and a maintainer reviews it before merging.
-(A pull request from a fork cannot comment: the summary is then in the job
-log and the job summary.)
+CI checks your pull request with the base branch's scripts, never the ones
+in your pull request, and posts the summary as a comment, for a fork too.
+For a new plugin it lists everything the plugin asks for; for an update, only
+what changed since the published version. Anything new, wider or changed (a
+host scope, a network host, a tool effect, a command, schedule, event,
+prompt, context or page, `trustedInput`, the runtime) adds the label
+`needs-security-review`. A change to anything outside your
+`plugins/<name>/` directory adds `needs-maintainer-review` and needs the code
+owner's review: keep a plugin pull request to its directory.
 
 The review follows [the review checklist](docs/REVIEW-CHECKLIST.md): the
 code, the permissions, the network hosts, where outside data meets a model
@@ -91,8 +109,9 @@ update that widens nothing, the review is mostly the code diff.
 ## 5. After the merge
 
 CI builds the tarball reproducibly and records its hashes; it never signs.
-The key holder then publishes on the publishing machine: rebuilds from the
-merged source, compares with CI's record, signs, and deploys
+The key holder then publishes: rebuilds from the merged source and compares
+with CI's record (no key), signs in a separate key session that runs only the
+pinned Octipus CLI, and deploys
 [plugins.octipus.cc](https://plugins.octipus.cc). Your plugin page shows you
 as the author and "Reviewed and signed by Octipus".
 

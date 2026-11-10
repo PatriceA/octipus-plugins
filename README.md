@@ -17,186 +17,333 @@ in the Octipus repository; the package format, signatures and registries in
 plugins/<name>/            one plugin each: manifest, server, ui/, tests, README.md, CHANGELOG.md, marketplace.json
 plugins/_template/         the starting point (anything starting with _ is never published)
 schema/                    marketplace.schema.json, the listing schema
-keys/                      octipus.pub and octipus-backup.pub (public halves only)
-revoked.json               revoked package versions and keys, published in the index
-published.json             what is published: name → version → { sha256, contentHash, permissions, publishedAt, … }
-OCTIPUS_REF                the Octipus commit whose CLI the scripts and CI use
-scripts/                   check.mjs (PR checks), build.mjs (CI build), publish.mjs (signing and output)
-scripts/lib/               the pure parts (permissions diff, semver, schema, index v2) and octi.mjs, the CLI wrapper
+keys/                      root/*.pub, signing/*.pub and endorsements.json (public halves only; keys/README.md)
+revoked.json               revoked package versions and keys (append-only), published in the index
+published.json             what is published (append-only, anchored to the signed index)
+OCTIPUS_REF                the 40-hex Octipus commit whose CLI the scripts and CI use
+scripts/                   check.mjs and test-plugins.mjs (PR gate), report.mjs (PR comment), build.mjs (CI build),
+                           publish.mjs (build, finish), sign.mjs (the key session), keys.mjs (keys.json), stats.mjs
+scripts/lib/               the pure parts, safe-fs.mjs (no links), git.mjs (trees from git objects), octi.mjs (the CLI)
 site/                      the Astro site, in the octipus.cc design (site/src/design/)
-.github/workflows/         pr.yml, build.yml, site.yml, test.yml
+.github/                   CODEOWNERS; workflows pr.yml, pr-report.yml, build.yml, site.yml, test.yml
 ```
+
+## Trust, in one paragraph
+
+Four boundaries are hard: the sandbox a host runs a plugin in, the
+signatures, the listing matching the plugin that is downloaded, and the
+runtime enforcement of what the plugin declared. Everything this repository
+does to protect the **signatures** is hard too, and fails closed: no symbolic
+link or submodule is ever accepted anywhere; `published.json` and
+`revoked.json` only grow and must match the last signed index; the pull
+request gate runs only the base branch's code; the key session runs only the
+pinned Octipus CLI and a small dependency-free script; the signing keys are
+the ones an offline root key endorses. The rest (a widened permission, a
+lookalike name, an unknown licence) is guidance for the reviewer: a label, a
+warning, a line in the checklist.
 
 ## The Octipus CLI is the single source of truth
 
 Nothing here hashes, packs, signs or computes permissions itself. Every such
-step calls `octi plugin <cmd>` from an Octipus checkout, through one wrapper,
-[`scripts/lib/octi.mjs`](scripts/lib/octi.mjs):
+step calls `octi plugin <cmd>` from an Octipus checkout, through
+[`scripts/lib/octi.mjs`](scripts/lib/octi.mjs) (and, in the key session,
+[`scripts/sign.mjs`](scripts/sign.mjs)), one way only:
 
 ```sh
-npx --prefix "$OCTIPUS" tsx --tsconfig "$OCTIPUS/tsconfig.json" "$OCTIPUS/scripts/plugin.ts" <cmd> …
+"$OCTIPUS/node_modules/.bin/tsx" --tsconfig "$OCTIPUS/tsconfig.json" "$OCTIPUS/scripts/plugin.ts" <cmd> …
 ```
 
-- **Locally** `$OCTIPUS` defaults to `../octipus` (a checkout next to this
-  one, with `npm ci` run in it). `$OCTI_CLI` replaces the whole command, e.g.
-  `OCTI_CLI="octi plugin"` for an installed Octipus.
-- **In CI** the workflows check out PatriceA/octipus at the ref in
-  [`OCTIPUS_REF`](OCTIPUS_REF), run `npm ci` in it and point `$OCTIPUS` at it.
-  Pin `OCTIPUS_REF` to a commit; moving it is a reviewed change.
+- `$OCTIPUS` defaults to `../octipus`. Its HEAD must be exactly the 40-hex
+  commit in [`OCTIPUS_REF`](OCTIPUS_REF) and `git status` must be empty;
+  otherwise every script stops. Run `npm ci --ignore-scripts` in it.
+- There is no override: `$OCTI_CLI` is refused, and `npx` is never used (it
+  would fetch a missing `tsx` from the registry without asking).
+- `OCTIPUS_REF` is a commit id, never a branch, tag or `refs/pull/…`. Moving
+  it is a reviewed change (CODEOWNERS).
+- `node_modules` of the Octipus checkout is not covered by the clean check
+  (it is ignored by git): install it with `npm ci --ignore-scripts` from the
+  pinned lockfile, on a machine you trust.
 
 The commands used: `validate`, `hash`, `pack`, `permissions`, `verify`,
-`verify-index`, `sign`, `sign-index`, `keygen` (all offline, all with
-`--json`).
+`verify-index`, `sign`, `sign-index`, `keygen`, and `sign-keys` for
+keys.json (all offline, with `--json`). `sign-keys` is newer than the
+current `OCTIPUS_REF` (326b9469): until `OCTIPUS_REF` moves to an Octipus
+commit that has it, `npm run keys -- sign` stops without signing, and the
+tests sign their keys.json with Octipus e7f367d8 (`tests/octipus.mjs`).
 
 ## How the CI works
 
-**On a pull request** (`pr.yml`), `scripts/check.mjs` checks each plugin the
-pull request changes:
+### Pull requests: `pr.yml` and `pr-report.yml`
 
-1. `octi plugin validate`, the `marketplace.json` schema, `README.md` and a
-   `CHANGELOG.md` heading for the version, no committed signature, no
-   `dependencies`;
-2. the plugin's own tests (`npm test` in its directory, when it has a test
-   script);
-3. a smoke run: its server is started under bwrap (no network, a read-only
-   view, its data directory the only writable place), and must answer
-   `initialize` and `tools/list` with its declared tools. Without bwrap it
-   runs plain, with a warning;
-4. the host's install limits: 20,000 files, 200 MB unpacked, a 50 MB tarball;
-5. `runtime: in-process` is refused;
-6. the version must be greater than the published one (`published.json`),
-   and a published version can never change content;
-7. the **permissions diff** against the published version's permissions:
-   new or wider host scopes, network hosts, tool effects, contributions,
-   pages, `trustedInput`, `maxProtection` and the runtime. A new plugin is all
-   new.
+`pr.yml` has two jobs, both with a read-only token, for forks too:
 
-The summary (`check-summary.md`) is posted as one comment on the pull request
-and refreshed on every push. When anything widens, the label
-`needs-security-review` is added (and removed again when nothing does). The
-job that runs the pull request's code has a read-only token; a second job,
-which runs none of it, comments and labels. A pull request from a fork cannot
-comment, so its summary is in the job log and the job summary.
+- **`check`** (Check changed plugins (data only)) checks out the **base**
+  commit's scripts into `base/`, the pull request's tree into `pr/` as data,
+  and the Octipus CLI at the base's `OCTIPUS_REF`; it runs
+  `base/scripts/check.mjs`. Nothing of the pull request runs: not its tests,
+  its server, its scripts, schema or `OCTIPUS_REF`. It checks:
+  1. no symbolic link or submodule anywhere in the pull request's tree;
+  2. `published.json` and `revoked.json` against the base: no entry removed
+     or changed; a record added to `published.json` must be exactly one the
+     live signed index already has;
+  3. for each changed plugin directory, exported from git (regular files
+     only): `octipus-plugin.json` present (a legacy `plugin.json` is refused
+     before `validate`, which would import its code), name and version rules
+     (no reserved name, no build metadata), `octi plugin validate`, the
+     listing schema and text rules, README and CHANGELOG present and within
+     64 KB and 32 KB, no committed signature, no `dependencies`, no
+     `in-process` runtime, the install limits, a version greater than the
+     published one, and the permissions diff.
+  It uploads only `check-result.json`.
+- **`test`** (Plugin tests (sandboxed)) runs `base/scripts/test-plugins.mjs`:
+  each changed plugin's `npm test --ignore-scripts` and a smoke run of its
+  server (`initialize`, `tools/list`), both in bwrap with no network, a
+  read-only system, and nothing of the runner's workspace. It passes or
+  fails; it uploads nothing and nothing it prints reaches the report.
 
-Run it locally: `npm run check -- --plugin <name> --smoke` (or `--all`, or
-`--base origin/main` for what changed).
+`pr-report.yml` runs on `workflow_run` from the default branch, with the
+write token, and runs nothing of the pull request. It finds the pull request
+from the event (head repository, branch and commit), lists its files and the
+two jobs' outcomes through the API, downloads `check-result.json` as data,
+validates it strictly ([`scripts/lib/check-result.mjs`](scripts/lib/check-result.mjs)),
+and renders the comment itself ([`scripts/report.mjs`](scripts/report.mjs)):
+every string from the pull request sits in a code span or a fenced block
+longer than any backtick run in it. It adds labels and never removes them:
 
-**On a push to `main`** (`build.yml`), `scripts/build.mjs` packs every plugin
-version that `published.json` does not have yet and uploads the artifact
-`build-record` (`build-record.json`: `{ commit, packages: [{ name, version,
-sha256, contentHash }] }`). CI holds no key and never signs or publishes.
+- `needs-security-review`: a plugin asks for something new, wider or
+  changed (any change in commands, schedules, events, prompt, context or
+  pages counts, until the CLI's summary shows them in full);
+- `needs-maintainer-review`: the pull request touches anything outside
+  `plugins/<name>/` (`published.json`, `revoked.json`, `keys/`, `scripts/`,
+  `site/`, the workflows, `OCTIPUS_REF`, `package*.json`, `tests/`, the
+  template), or the check result is missing, invalid or contradicts its job.
 
-**`site.yml`** builds the site on pull requests that touch it, and
-**`test.yml`** runs `npm test`.
+A pull request can edit `pr.yml` itself; what it runs then still has a
+read-only token, and the report still labels it from the API. Code owners'
+review is what keeps such a change out of `main`.
 
-## Publishing (the key holder)
+Locally: `npm run check -- --plugin <name>` checks your commits against
+`origin/main` (commit first: it reads git, not the working tree), and
+`node scripts/test-plugins.mjs --plugin <name>` runs the sandboxed tests
+(bwrap required).
 
-Publishing happens only on the publishing machine. The private key never
-goes to GitHub or to the web server.
+### `main`: `build.yml`, and the rest
 
-### Once: the keys
+On every push to `main`, `build.yml` runs `scripts/build.mjs`: it exports
+the commit's tree from git and packs every version `published.json` does not
+have, recording `build-record.json` (`{ schema, commit, packages: [{ name,
+version, sha256, contentHash }] }`) as the artifact `build-record`. CI holds
+no key and never signs. `site.yml` builds the site on pull requests that
+touch it, and `test.yml` runs `npm test`. Every `npm ci` runs with
+`--ignore-scripts`; every action is pinned to a commit (checked against its
+tag).
 
-1. Generate the active key and the backup key, each with its own
-   passphrase, **outside this repository**:
+### Branch protection (turn it on)
 
-   ```sh
-   cd ~/octipus-keys            # not inside any checkout
-   octi plugin keygen octipus --passphrase-file -          # type the passphrase, then Ctrl-D
-   octi plugin keygen octipus-backup --passphrase-file -
-   ```
+In the repository settings, for `main`:
 
-   (Or with the checkout: `npx --prefix ../octipus tsx --tsconfig ../octipus/tsconfig.json ../octipus/scripts/plugin.ts keygen …`.)
-   Each writes `<name>.key` (passphrase-encrypted PKCS#8, mode 0600) and
-   `<name>.pub`, and prints the key id.
-2. Copy the two **public** files into `keys/` here, as `keys/octipus.pub` and
-   `keys/octipus-backup.pub`, and commit them.
-3. Move `octipus-backup.key` **offline** (a password manager, a USB stick in
-   a drawer) with its passphrase, and delete it from the machine. It is only
-   for replacing a lost or leaked active key.
-4. Give both `.pub` files to Octipus's built-in `trustedPublishers` entry for
-   the marketplace.
+1. **Require a pull request before merging**, with at least one approval,
+   **Require review from Code Owners**, and dismiss stale approvals on new
+   commits. [`.github/CODEOWNERS`](.github/CODEOWNERS) assigns everything
+   outside `plugins/<name>/` (and the template) to the maintainer.
+2. **Require status checks to pass**: `Check changed plugins (data only)`
+   and `Plugin tests (sandboxed)` (and `npm test` from `test.yml`), with the
+   branch up to date.
+3. Do not allow force pushes or deletions. If you keep pushing the publish
+   commit (`published.json`) directly, allow only the maintainer to bypass;
+   otherwise send it as a pull request: CI accepts its new records only when
+   they match the live signed index.
+
+## Publishing
+
+Publishing is three steps; only the middle one holds a key.
+
+```
+npm run publish -- build          no key: plan, pack, compare with CI, index template   → release/
+node scripts/sign.mjs …           the key session: pinned CLI only; asks, signs         → release/signed/
+npm run publish -- finish …       no key: verify, published.json, the site              → dist/
+```
+
+### The keys
+
+The marketplace has an offline **root** key (and a backup root) and
+**signing** keys. Octipus ships only the root public keys; the root signs
+`keys.json`, which endorses the signing keys; a signing key signs packages
+and the index. See [keys/README.md](keys/README.md) for the layout and the
+`keys.json` format.
+
+Once:
+
+1. Make the root key, a backup root and a signing key, each with its own
+   passphrase, **outside this repository** (`octi plugin keygen <prefix>
+   --passphrase-file -`). Keep both roots offline.
+2. Put the public halves in `keys/root/` and `keys/signing/`, name the
+   signing key in `keys/endorsements.json`, and merge that (code owners).
+3. In the root key session: `node scripts/keys.mjs sign --first --key
+   <root.key> --passphrase-file -`, and deploy `release-keys/keys.json` and
+   `keys.json.sig` to the site.
+4. Keep a copy of the root public key(s) on the publishing machine,
+   outside the repository: `sign.mjs` takes the root from there
+   (`--root-pub`), never from `keys/`, so a pull request cannot choose it.
 
 ### Every release
 
-1. Merge the reviewed pull requests to `main`, and wait for the **Build**
-   workflow on the merge commit to finish.
-2. On the publishing machine, with **Node 24 (the version in
-   `.node-version`, as CI)**, `gh` logged in, and Octipus checked out at
-   `OCTIPUS_REF` next to this repository:
+1. Merge the reviewed pull requests and wait for **Build** on the merge
+   commit.
+2. **Build** (no key; Node from `.node-version`, `gh` logged in, Octipus at
+   `OCTIPUS_REF` in `../octipus`):
 
    ```sh
    git switch main && git pull --ff-only
-   npm ci
-   npm run publish -- --key ~/octipus-keys/octipus.key
+   npm ci --ignore-scripts
+   npm run publish -- build
    ```
 
-   It asks for the passphrase once (or pass `--passphrase-file <path|->`).
-   Publish:
-   1. checks the worktree is clean, on `main`, and equal to `origin/main`;
-   2. finds the new versions (not in `published.json`);
-   3. packs each from the committed tree and **compares** it with CI's
-      `build-record.json` for that commit (fetched with `gh run download`;
-      without `gh`, pass `--build-record <file>`; `--skip-ci-compare` skips it
-      with a loud warning). Any difference stops it;
-   4. signs the package copy (so the tarball carries `octipus-plugin.sig`)
-      and verifies it against `keys/octipus.pub`;
-   5. writes `dist/dl/<name>-<version>.tar.gz`, and rebuilds every older
-      version's tarball from its recorded commit and signature, checking it
-      is byte for byte the published one;
-   6. builds `index.json` (index v2, below);
-   7. signs it (`index.json.sig`) and verifies it against `keys/`;
-   8. updates `published.json`;
-   9. builds the site into `dist/`;
-   10. prints what to deploy and commit.
+   It checks the worktree (clean, `main`, equal to `origin/main`) and the
+   commit's tree (no link or submodule), and reads everything from a copy
+   exported from git. It verifies the live `keys.json` with the root keys
+   and the live `index.json` with an endorsed signing key, and refuses when
+   `published.json` or `revoked.json` drops, changes or adds anything the
+   signed index does not have, or when a record is malformed (name, `dir`,
+   version, `commit` an ancestor of HEAD, canonical `signatureFile`). It
+   packs each new version, compares it with CI's build record (a successful
+   **push** run of `build.yml` on `main` for exactly this commit), rebuilds
+   every published version byte for byte, and writes
+   `release/release-plan.json`, the unsigned tarballs and the index
+   template. It prints the git diff stat of everything outside the plugin
+   directories since the last publish.
 
-   `--dry-run` does all of it except signing and writing `published.json`
-   (do not deploy its output). `--out <dir>` changes the output directory.
-   It refuses a key file inside the repository and an unencrypted key, and it
-   never pushes or uploads anything.
-3. **Deploy `dist/`** to the web server for plugins.octipus.cc, as it is
-   (e.g. `rsync -a --delete dist/ <server>:/var/www/plugins.octipus.cc/`).
-4. **Commit and push `published.json`**:
-   `git add published.json && git commit -m "Publish <name> <version>" && git push`.
+   `--index-from <file|url>` and `--keys-from <file|url>` replace the live
+   files (tests); the first publish of all uses `--no-previous-index`.
+   `--build-record <file>` and `--skip-ci-compare` bypass the CI compare only
+   after you type `bypass the CI compare for <commit>`; the plan records it
+   and `sign.mjs` shows it.
+3. **Sign** (the key session): with `node`, never `npm` (npm would run a
+   `presign` script and read the repository's `.npmrc`):
 
-That signature is the sign-off: a merged version is not installable from the
-marketplace until it is published.
+   ```sh
+   node scripts/sign.mjs --plan release/release-plan.json \
+     --key ~/octipus-keys/signing.key --root-pub ~/octipus-keys/root.pub
+   ```
+
+   `sign.mjs` imports only Node's built-ins and starts only git and the
+   pinned CLI (HEAD exactly `OCTIPUS_REF`, clean, an ancestor of its
+   `origin/main`). It verifies `keys.json` with your root key and the live
+   index with an endorsed key, shows the diff stat outside the plugins, then
+   for each package extracts the tarball (files and directories only),
+   checks name, version and content hash with the CLI, shows them with the
+   permissions, and asks you to type `sign <name> <version>`. It signs the
+   extracted copy (the signature covers the content hash), verifies it, packs
+   it again with its signature, fills the tarballs' sha256 and key id into
+   the index, checks the index against the live one (nothing dropped or
+   changed, no revocation undone), and asks before signing it. `--yes` skips
+   the questions, with a loud banner. Read `git diff <last publish>..HEAD --
+   scripts/sign.mjs` before a release when it changed.
+
+   Why packing after signing is safe: the signature is over the content hash,
+   and the signature file is the one file the content hash leaves out, so the
+   signed tarball has the same content hash as the unsigned one that was
+   compared with CI; `sign.mjs` checks that, and its sha256 goes into the
+   index it then signs.
+4. **Finish** (no key):
+
+   ```sh
+   npm run publish -- finish --plan release/release-plan.json [--stats stats.json]
+   ```
+
+   It verifies what sign wrote, adds the records to `published.json`, and
+   assembles `dist/`: the tarballs, `index.json(.sig)`, `keys.json(.sig)`,
+   the site, the listing images.
+5. **Deploy** `dist/` as it is (`rsync -a --delete --filter 'P stats.json'
+   dist/ <server>:/var/www/plugins.octipus.cc/`), and **commit and push
+   `published.json`**.
+
+### Rotating a signing key
+
+1. Make the new signing key, add it to `keys/signing/` and
+   `keys/endorsements.json` beside the old one, and merge.
+2. Root session: `node scripts/keys.mjs sign --key <root.key>
+   --passphrase-file -` (version + 1, both keys endorsed); deploy keys.json.
+3. `npm run publish -- build --resign-to <new key id>`; `sign.mjs` with the
+   new key re-signs every live version (same content hash, rebuilt
+   reproducibly; revoked versions keep their old signature); finish; deploy.
+4. Remove the old key from `signingKeys` and add it to `revokedKeys` in
+   `keys/endorsements.json`, merge, root-sign keys.json again, deploy.
+
+If the old key leaked, do steps 1-2 with the old key already revoked; the
+last index then verifies only with the old key: pass
+`--previous-keys-from <the older keys.json>` to build and sign (both say so
+loudly).
 
 ### Revoking
 
-Add the version (`{ "name", "version", "reason" }`) or key
-(`{ "keyId", "reason" }`) to [`revoked.json`](revoked.json), commit, and
-publish: the index carries it in `revoked`, and hosts refuse the version or
-key at install and at start. If the active key leaked, publish with the
-backup key and a new active key (and update `keys/`).
+Append the version (`{ "name", "version", "reason" }`) or key (`{ "keyId",
+"reason" }`) to [`revoked.json`](revoked.json), merge, and publish: the index
+carries it in `revoked`. A revocation is never removed: CI refuses it, and
+publish refuses an index that would drop it.
+
+### Download counts
+
+`npm run stats -- [--out stats.json] /var/log/nginx/access.log*` counts the
+`GET /dl/<name>-<version>.tar.gz` answered 200 per plugin into
+`stats.json` (`{ generatedAt, downloads: { "<name>": n } }`), and keeps
+nothing else (no address, user agent or time). Run it on the web server or
+the deploy machine, never in the key session; serve it as
+`/stats.json` (unsigned, display only), and pass it to `finish --stats` to
+show the counts on the site.
 
 ### Serving the site
 
-`dist/` is static: HTML, `/_astro/` assets, `/dl/*.tar.gz`, `/index.json`,
-`/index.json.sig`, `/keys/*.pub`, and the listing images under `/<name>/`.
+`dist/` is static: HTML, `/_astro/`, `/dl/*.tar.gz`, `/index.json(.sig)`,
+`/keys.json(.sig)`, `/stats.json`, and listing images under `/<name>/`. No
+cookies, no analytics, no external scripts; the only remote resource is the
+Manrope font.
 
-- **No cookies, no analytics, no external scripts.** The only remote
-  resource is the Manrope font from Google Fonts.
-- **The CSP**: the build writes it to `dist/_headers` (the `_headers` format)
-  and `dist/csp.txt`. It allows the site's own files, its two inline
-  scripts by hash, and Google Fonts only:
+The CSP allows exactly the two inline scripts of `site/src/scripts/`, by
+the hash of their source, and the build fails on any other script, `on*`
+attribute or `javascript:` URL in a page. The build writes the headers to
+`dist/_headers` and the CSP to `dist/csp.txt`. With nginx, `add_header` in a
+`location` replaces every `add_header` of the server, so repeat the security
+headers in each location that adds its own:
 
-  ```
-  default-src 'none'; script-src 'self' 'sha256-…'; style-src 'self' https://fonts.googleapis.com;
-  font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; manifest-src 'self';
-  base-uri 'none'; form-action 'none'; frame-ancestors 'none'
-  ```
+```nginx
+# /etc/nginx/snippets/octipus-plugins-security.conf
+add_header Content-Security-Policy "<contents of dist/csp.txt>" always;
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header X-Frame-Options "DENY" always;
+```
 
-  Take the exact value from `dist/csp.txt` after each publish (the script
-  hashes change only when the scripts do). With nginx:
+```nginx
+server {
+  listen 443 ssl;
+  server_name plugins.octipus.cc;
+  root /var/www/plugins.octipus.cc;
+  include snippets/octipus-plugins-security.conf;
 
-  ```nginx
-  add_header Content-Security-Policy "<contents of csp.txt>" always;
-  add_header X-Content-Type-Options nosniff always;
-  add_header Referrer-Policy strict-origin-when-cross-origin always;
-  location /dl/ { types { application/gzip gz; } add_header Cache-Control "public, max-age=31536000, immutable"; }
-  location = /index.json { add_header Cache-Control "public, max-age=300"; }
-  location = /index.json.sig { default_type application/json; add_header Cache-Control "public, max-age=300"; }
-  ```
+  location /dl/ {
+    include snippets/octipus-plugins-security.conf;
+    types { application/gzip gz; }
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+  }
+  location ~ ^/(index|keys)\.json(\.sig)?$ {
+    include snippets/octipus-plugins-security.conf;
+    default_type application/json;
+    types { application/json json sig; }
+    add_header Cache-Control "public, max-age=300" always;
+  }
+  location = /stats.json {
+    include snippets/octipus-plugins-security.conf;
+    add_header Cache-Control "public, max-age=300" always;
+  }
+}
+```
+
+Take the CSP from `dist/csp.txt` after each publish (it changes only when
+the scripts do).
 
 ## Index v2
 
@@ -241,20 +388,29 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
   `changelog` ride on the newest entry of each plugin only (older entries
   have `null`), to keep the index far below a host's 1 MB cap.
 - Listing metadata comes from the current `marketplace.json`, which can
-  change without a new version.
+  change without a new version. Icons and screenshots are always under
+  `https://plugins.octipus.cc/<name>/`, tarballs under `/dl/` on the same
+  origin, and `homepage` and `author.url` are https (the host drops
+  anything else). README and CHANGELOG stay within 64 KB and 32 KB here (the
+  host reads at most 200k and 100k characters).
+- `keyId` is informational: a host takes the key from the signature.
 
 ## Developing
 
 ```sh
-npm ci
-npm test               # unit tests, the site build with fixtures, the end-to-end publish test
+npm ci --ignore-scripts
+npm test               # unit tests, the site, the security regressions, the PR gate, build/sign/finish end to end
 npm run build:site     # the empty marketplace, into dist/
 npm run dev:site
 ```
 
-The end-to-end test needs the Octipus checkout (`$OCTIPUS` or `../octipus`)
-with the CLI commands above; it makes a temporary marketplace repository, a
-throwaway encrypted key and publishes the reader fixture twice.
+The integration tests need an Octipus checkout (`$OCTIPUS` or `../octipus`)
+with `node_modules`. They never use it directly: `tests/octipus.mjs` clones
+it at `OCTIPUS_REF` (and, for `sign-keys`, at e7f367d8 while `OCTIPUS_REF`
+predates it) into a clean temporary checkout. bwrap is needed for the
+sandboxed-test test. The end-to-end test makes a temporary marketplace with
+throwaway encrypted root and signing keys, publishes the reader fixture
+twice, rotates the signing key, and replays the review's attacks.
 
 The site's design (`site/src/design/`) is a stand-in for the octipus.cc
 design source: see [its README](site/src/design/README.md).

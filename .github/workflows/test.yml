@@ -8,9 +8,9 @@ name: Tests
 # the pull request's code with a read-only token and no secret.
 
 on:
+  # Every pull request, with no path filter: a required check that a path
+  # filter skips would never report.
   pull_request:
-    paths-ignore:
-      - 'plugins/**'
   push:
     branches: [main]
 
