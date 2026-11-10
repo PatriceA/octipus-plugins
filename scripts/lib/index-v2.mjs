@@ -1,10 +1,12 @@
 // Index v2 (docs/plans/marketplace.md, "Index v2"): the v1 fields every host
 // reads (name, version, description, url, sha256) plus the listing metadata,
-// the CLI's permissions, apiVersion, minOctipus, the publisher, publishedAt,
+// the CLI's permissions (exactly as `octi plugin permissions --json` prints
+// them: scripts/lib/permissions.mjs), apiVersion, minOctipus, the publisher, publishedAt,
 // every published version, and the revocations of revoked.json.
 //
 // Pure: everything comes in as arguments, so the same inputs give the same
 // bytes (the index is signed over its exact bytes).
+import { assertPermissions } from './permissions.mjs';
 import { sortSemverDesc } from './semver.mjs';
 
 export const BASE_URL = 'https://plugins.octipus.cc';
@@ -40,6 +42,13 @@ export function buildIndex({ published, sources, revoked, generatedAt, baseUrl =
       const src = sources[name];
       const listing = src?.listing ?? rec.listing ?? {};
       const latest = i === 0;
+      // The CLI's object, exactly: a host refuses any other shape, and an
+      // entry whose permissions are not its own name, version and apiVersion.
+      const permissions = assertPermissions(rec.permissions, `${name} ${version}: permissions`);
+      const apiVersion = rec.apiVersion ?? permissions.apiVersion;
+      if (permissions.name !== name || permissions.version !== version || permissions.apiVersion !== apiVersion) {
+        throw new Error(`${name} ${version}: permissions are for ${permissions.name} ${permissions.version} (apiVersion ${permissions.apiVersion}), not the entry's (apiVersion ${apiVersion})`);
+      }
       packages.push({
         name,
         version,
@@ -47,7 +56,7 @@ export function buildIndex({ published, sources, revoked, generatedAt, baseUrl =
         url: `${base}/dl/${tarballName(name, version)}`,
         sha256: rec.sha256,
         contentHash: rec.contentHash,
-        apiVersion: rec.apiVersion ?? rec.permissions?.apiVersion ?? null,
+        apiVersion,
         minOctipus: rec.minOctipus ?? null,
         title: listing.title ?? name,
         summary: listing.summary ?? '',
@@ -65,7 +74,7 @@ export function buildIndex({ published, sources, revoked, generatedAt, baseUrl =
         license: listing.license ?? null,
         publishedAt: rec.publishedAt,
         keyId: rec.keyId ?? null,
-        permissions: rec.permissions,
+        permissions,
         deprecated: listing.deprecated ?? null,
       });
     });

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildReport } from '../scripts/report.mjs';
+import { smallPermissions } from './fixtures/permissions.mjs';
 
 const plugin = (over = {}) => ({ dir: 'plugins/x', name: 'x', version: '1.1.0', publishedVersion: '1.0.0', template: false, ok: true, widened: false, firstVersion: false, errors: [], warnings: [], steps: [], permissions: null, changes: [], ...over });
 const result = (over = {}) => JSON.stringify({ schema: 1, kind: 'octipus-plugins-check', base: 'a'.repeat(40), head: 'b'.repeat(40), octipusRef: 'c'.repeat(40), ok: true, widened: false, needsMaintainer: false, problems: [], outside: [], outsideTotal: 0, plugins: [plugin()], ...over });
@@ -31,11 +32,21 @@ test('H5: a missing, invalid or contradictory artifact means a maintainer looks'
     [result({ ok: true }), 'failure'],
     [result({ ok: true }), 'cancelled'],
     [result({ head: 'HEAD' }), 'success'],
+    // M3: permissions in the old shape, or not the CLI's exact object.
+    [result({ plugins: [plugin({ permissions: { ...smallPermissions(), pages: 0 } })] }), 'success'],
+    [result({ plugins: [plugin({ permissions: { ...smallPermissions(), effects: { read: 9, write: 0, external: 0 } } })] }), 'success'],
   ]) {
     const r = buildReport({ resultText, paths: ['plugins/x/a.js'], checkJob, testJob: 'success' });
     assert.deepEqual(r.labels, ['needs-maintainer-review'], String(resultText).slice(0, 80));
     assert.match(r.body, /could not be used/);
   }
+});
+
+test('a first version lists what it asks for, from the CLI\'s permissions', () => {
+  const permissions = smallPermissions({ name: 'x', version: '1.1.0', host: ['notes:read'] });
+  const r = buildReport({ resultText: result({ widened: true, plugins: [plugin({ widened: true, firstVersion: true, publishedVersion: null, permissions })] }), paths: ['plugins/x/a.js'], checkJob: 'success', testJob: 'success' });
+  assert.match(r.body, /What it asks for/);
+  assert.match(r.body, /host API: notes:read/);
 });
 
 test('a widening adds needs-security-review; labels are never removed', () => {

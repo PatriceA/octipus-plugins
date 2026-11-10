@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildIndex, isRevoked, serializeIndex } from './index-v2.mjs';
+import { smallPermissions } from '../../tests/fixtures/permissions.mjs';
 
-const perm = { name: 'w', version: '1.1.0', apiVersion: '1.0.0', runtime: 'package', host: ['tasks:read'], network: [], tools: [{ name: 't', effect: 'read' }], effects: { read: 1, write: 0, external: 0 }, contributions: { commands: [], schedules: [], events: [], prompt: false, context: false }, pages: 0, trustedInput: false, maxProtection: 1 };
+const perm = smallPermissions({ name: 'weekly-review', version: '1.1.0', host: ['tasks:read'] });
 const rec = (v, at) => ({ sha256: 'a'.repeat(64), contentHash: `sha256:${'b'.repeat(64)}`, permissions: { ...perm, version: v }, publishedAt: at, keyId: `ed25519:${'c'.repeat(64)}`, description: 'Weekly review', apiVersion: '1.0.0', minOctipus: '0.7.0' });
 
 const published = { 'weekly-review': { '1.0.0': rec('1.0.0', '2026-11-01T00:00:00Z'), '1.1.0': rec('1.1.0', '2026-11-08T00:00:00Z') } };

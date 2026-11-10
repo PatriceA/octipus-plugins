@@ -42,6 +42,7 @@ import { exportCommit } from './build.mjs';
 import { assertNoLinks, exportTree, git, headCommit, isAncestor, lsTree } from './lib/git.mjs';
 import { BASE_URL, buildIndex, serializeIndex, tarballName } from './lib/index-v2.mjs';
 import { checkListing, LISTING_FILE, listingImages } from './lib/listing.mjs';
+import { permissionsProblems } from './lib/permissions.mjs';
 import { cli, missingSubcommands, octipusRef, REPO_ROOT } from './lib/octi.mjs';
 import { anchorProblems, nameProblem, validatePublished, versionProblem } from './lib/records.mjs';
 import { isSkipped, LIMITS, MANIFEST, overwriteRegular, parseJson, pluginDirs, PLUGINS_DIR, readPublished, readRevoked, serializePublished, withPublished } from './lib/repo.mjs';
@@ -306,6 +307,8 @@ export async function publishBuild(opts) {
       const v = await cli.validate(dir);
       if (!v.ok) stop(`${p.name} ${p.version} does not validate:\n${(v.problems ?? []).map((x) => `  - ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}`);
       const permissions = await cli.permissions(dir);
+      const pp = permissionsProblems(permissions);
+      if (pp.length) stop(`${p.name} ${p.version}: octi plugin permissions is not in the shape an index carries:\n${pp.map((x) => `  - ${x}`).join('\n')}`);
       if (permissions.runtime === 'in-process') stop(`${p.name} is runtime "in-process": the marketplace carries sandboxed packages only`);
       const rel = `unsigned/${tarballName(p.name, p.version)}`;
       out_.mkdir('unsigned');

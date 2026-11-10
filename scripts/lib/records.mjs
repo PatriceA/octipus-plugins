@@ -4,7 +4,7 @@
 // Every value in these files ends up in a path, a command line or the signed
 // index, so nothing is taken on trust: a record has exactly the fields
 // publish writes, each in its exact form.
-import { stableStringify } from './permissions.mjs';
+import { permissionsProblems, stableStringify } from './permissions.mjs';
 import { checkListing } from './listing.mjs';
 import { COMMIT_RE } from './git.mjs';
 
@@ -96,8 +96,13 @@ export function recordProblems(name, version, rec) {
   } catch (err) {
     p.push(`${at}: ${err.message}`);
   }
-  if (!isObj(rec.permissions)) p.push(`${at}: permissions must be an object`);
+  // Exactly the CLI's object (octi plugin permissions --json): the index
+  // carries it as it is, and the host compares it whole with what it
+  // recomputes from the package.
+  const pp = permissionsProblems(rec.permissions);
+  if (pp.length) for (const x of pp) p.push(`${at}: ${x}`);
   else if (rec.permissions.name !== name || rec.permissions.version !== version) p.push(`${at}: permissions are for ${rec.permissions.name} ${rec.permissions.version}`);
+  else if (rec.apiVersion !== null && rec.permissions.apiVersion !== rec.apiVersion) p.push(`${at}: permissions.apiVersion ${rec.permissions.apiVersion} is not the record's ${rec.apiVersion}`);
   if (!isObj(rec.listing)) p.push(`${at}: listing must be an object`);
   else for (const l of checkListing(rec.listing)) p.push(`${at}: listing: ${l}`);
   return p;

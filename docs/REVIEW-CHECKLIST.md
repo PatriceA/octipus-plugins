@@ -28,8 +28,9 @@ plugin. The code owner reviews it line by line, and:
       not pinned to a commit, no write token in a job that runs pull request
       code. `scripts/sign.mjs`: still Node built-ins only, still starting only
       git and the pinned CLI.
-- [ ] `OCTIPUS_REF`: a 40-hex commit on PatriceA/octipus `main`, and the
-      Octipus diff since the old one read for the plugin CLI.
+- [ ] `OCTIPUS_REF`: a 40-hex commit on PatriceA/octipus `main` (publish
+      refuses one that is not), and the Octipus diff since the old one read
+      for the plugin CLI.
 - [ ] A pull request that edits a workflow: what it ran on itself proves
       nothing; read the workflow.
 

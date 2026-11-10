@@ -25,7 +25,8 @@
 //     the last publish, for you to read.
 //  5. For each package: the tarball build made, extracted here (regular
 //     files only), its name, version, content hash and permissions from the
-//     pinned CLI, compared with the plan, shown to you, and confirmed by you.
+//     pinned CLI, compared with the plan and the index template (the
+//     permissions exactly), shown to you, and confirmed by you.
 //     Then signed (the signature covers the content hash, not the tarball),
 //     verified, and packed again with its signature by the pinned CLI.
 //  6. The index: the plan's template with each new tarball's sha256 and key
@@ -483,6 +484,13 @@ export async function sign(opts) {
     else passphrase = await askLine('Passphrase for the signing key: ', { hidden: true });
     if (yes) log(loud(['--yes: every package below is signed WITHOUT asking you.']));
 
+    // The index template (filled in at 6.), read first: each package's
+    // permissions in it are checked against the CLI's at 5.
+    const tBytes = readRegular(join(planDir, plan.index.template), 2 * 1024 * 1024);
+    if (sha256Hex(tBytes) !== plan.index.sha256) stop('the index template is not the one the plan names');
+    const template = JSON.parse(tBytes.toString('utf8'));
+    if (!isObj(template) || template.schema !== 2 || !Array.isArray(template.packages) || !Array.isArray(template.revoked)) stop('the index template is not an index v2');
+
     // 5. Each package.
     const out = join(planDir, 'signed');
     mkdirSync(out, { mode: 0o755 }); // EEXIST: never reuse an earlier signing's output
@@ -504,6 +512,10 @@ export async function sign(opts) {
       const again = await cli.json('pack', [dir, '--out', join(x, 'repack.tar.gz')]);
       if (again.sha256.replace(/^sha256:/, '') !== p.sha256) stop(`${p.tarball}: repacking it here gives another tarball`);
       const perm = await cli.json('permissions', [dir]);
+      // The index carries the CLI's object as it prints it; the host compares
+      // it whole with what it recomputes, so any difference is uninstallable.
+      const entry = template.packages.find((e) => e.name === p.name && e.version === p.version);
+      if (!entry || JSON.stringify(entry.permissions) !== JSON.stringify(perm)) stop(`${p.name} ${p.version}: the index template's permissions are not what the pinned CLI computes for the tarball`);
       const known = prev?.packages?.find((e) => e.name === p.name && e.version === p.version);
       if (p.kind === 'new' && known) stop(`${p.name} ${p.version} is already published`);
       if (p.kind === 'resign' && (!known || known.contentHash !== p.contentHash)) stop(`${p.name} ${p.version}: re-signing must keep the published content hash`);
@@ -537,10 +549,7 @@ export async function sign(opts) {
     }
 
     // 6. The index.
-    const tBytes = readRegular(join(planDir, plan.index.template), 2 * 1024 * 1024);
-    if (sha256Hex(tBytes) !== plan.index.sha256) stop('the index template is not the one the plan names');
-    const index = JSON.parse(tBytes.toString('utf8'));
-    if (!isObj(index) || index.schema !== 2 || !Array.isArray(index.packages) || !Array.isArray(index.revoked)) stop('the index template is not an index v2');
+    const index = template;
     for (const e of index.packages) {
       const r = records.find((x) => x.name === e.name && x.version === e.version);
       if (r) {

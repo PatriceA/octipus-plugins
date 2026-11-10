@@ -2,13 +2,14 @@
 // strictly, append-only, and anchored to the last signed index.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { smallPermissions } from '../../tests/fixtures/permissions.mjs';
 import { anchorProblems, nameProblem, parseSignatureFile, publishedDiff, recordProblems, revokedDiff, serializeSignature, validatePublished, validateRevoked, versionProblem } from './records.mjs';
 
 const keyId = `ed25519:${'ab'.repeat(32)}`;
 const signatureFile = serializeSignature({ alg: 'ed25519', keyId, signature: `${'A'.repeat(86)}==` });
 const listing = { title: 'Reader', summary: 'Read a page in a clean view.', category: 'knowledge', license: 'MIT', author: { name: 'Ada' } };
 export const goodRecord = (name = 'reader', version = '1.0.0') => ({
-  sha256: 'cd'.repeat(32), contentHash: `sha256:${'ef'.repeat(32)}`, permissions: { name, version, runtime: 'package' },
+  sha256: 'cd'.repeat(32), contentHash: `sha256:${'ef'.repeat(32)}`, permissions: smallPermissions({ name, version }),
   publishedAt: '2026-11-01T00:00:00Z', keyId, signatureFile, commit: '1'.repeat(40), dir: name,
   description: 'Reads.', apiVersion: '1.0.0', minOctipus: null, listing,
 });
@@ -33,7 +34,14 @@ test('C1: a record is exactly what publish writes', () => {
   assert.match(bad({ sha256: '00' }), /64 lower-case hex/);
   assert.match(bad({ extra: 1 }), /unknown field "extra"/);
   assert.match(bad({ keyId: `ed25519:${'cd'.repeat(32)}` }), /signatureFile is by/);
-  assert.match(bad({ permissions: { name: 'other', version: '1.0.0' } }), /permissions are for other/);
+  assert.match(bad({ permissions: smallPermissions({ name: 'other' }) }), /permissions are for other/);
+  // M3: the old shape, which hosts refuse, and anything but the CLI's exact object.
+  assert.match(bad({ permissions: { ...smallPermissions({ name: 'reader' }), pages: 0 } }), /old shape/);
+  assert.match(bad({ permissions: { ...smallPermissions({ name: 'reader' }), contributions: { commands: [], schedules: [], events: [], prompt: false, context: null } } }), /old shape/);
+  const { ui, ...rest } = smallPermissions({ name: 'reader' });
+  assert.match(bad({ permissions: { ...rest, ui } }), /in that order/);
+  assert.match(bad({ permissions: { name: 'reader', version: '1.0.0', runtime: 'package' } }), /permissions must have exactly/);
+  assert.match(bad({ apiVersion: '2.0.0' }), /permissions\.apiVersion 1\.0\.0 is not the record's 2\.0\.0/);
   assert.match(bad({ listing: { ...listing, screenshots: ['../_headers'] } }), /listing/);
   assert.throws(() => validatePublished({ zzz: { '1.0.0': { ...goodRecord('zzz'), dir: '../tests/fixtures/x' } } }), /dir must be "zzz"/);
   assert.throws(() => validatePublished({ '../x': {} }), /not a plugin name/);

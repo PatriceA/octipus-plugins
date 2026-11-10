@@ -4,6 +4,8 @@
 // renders the comment itself (summary.mjs), with escaping. The PR number,
 // the head commit and the job outcomes come from GitHub, never from here.
 
+import { permissionsProblems } from './permissions.mjs';
+
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const HEX40 = /^[0-9a-f]{40}$/;
 const MAX_STR = 4000;
@@ -48,6 +50,7 @@ export function validateCheckResult(r) {
     arr(p.steps, `${at}.steps`, 50, (s, a) => { exact(s, ['name', 'status'], a); str(s.name, `${a}.name`, { max: 200 }); str(s.status, `${a}.status`, { max: 1000 }); });
     if (p.permissions !== null && !isObj(p.permissions)) throw new ResultError(`${at}.permissions`);
     if (p.permissions !== null && JSON.stringify(p.permissions).length > 100_000) throw new ResultError(`${at}.permissions: too large`);
+    if (p.permissions !== null && permissionsProblems(p.permissions).length) throw new ResultError(`${at}.permissions: not the CLI's permissions shape`);
     arr(p.changes, `${at}.changes`, 500, (c, a) => {
       exact(c, ['change', 'text', 'widens'], a);
       if (!STATUSES.includes(c.change)) throw new ResultError(`${a}.change`);

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { buildIndex, serializeIndex } from '../scripts/lib/index-v2.mjs';
 import { assertCleanPages, buildSite, htmlPages } from './helpers.mjs';
+import { readerPermissions } from './fixtures/permissions.mjs';
 import { scriptHashes } from '../site/src/lib/inline-scripts.mjs';
 import { auditPage } from '../site/src/lib/page-audit.mjs';
 
@@ -14,15 +15,12 @@ const tmp = mkdtempSync(join(tmpdir(), 'octipus-site-test-'));
 after(() => rmSync(tmp, { recursive: true, force: true }));
 
 const fixture = join(import.meta.dirname, 'fixtures', 'plugins', 'reader');
-// The CLI's permissions shape for the reader fixture (octi plugin permissions --json).
-const permissions = {
-  name: 'reader', version: '1.0.0', apiVersion: '1.0.0', runtime: 'package',
-  host: ['model:complete', 'notes:write', 'tasks:write', 'web:read'], network: [],
-  tools: [{ name: 'create_tasks', effect: 'write' }, { name: 'read_url', effect: 'read' }, { name: 'reader_action', effect: 'read' }, { name: 'save_note', effect: 'write' }],
-  effects: { read: 2, write: 2, external: 0 },
-  contributions: { commands: [{ name: 'read', tool: 'read_url', description: 'Read a page' }], schedules: [{ id: 'digest', cron: '0 7 * * 1', tool: 'reader_action' }], events: [], prompt: false, context: false },
-  pages: 1, trustedInput: false, maxProtection: 1,
-};
+// The CLI's permissions for the reader fixture, with a command and a
+// schedule added (octi plugin permissions --json).
+const permissions = readerPermissions();
+permissions.contributions.commands = [{ name: 'read', tool: 'read_url' }];
+permissions.contributions.schedules = [{ id: 'digest', cron: '0 7 * * 1', tool: 'reader_action', input: { limit: 5 } }];
+permissions.contributions.prompt = { file: 'prompt.md', sha256: 'ab'.repeat(32), roles: ['researcher'] };
 const rec = (version, publishedAt) => ({ sha256: 'ab'.repeat(32), contentHash: `sha256:${'cd'.repeat(32)}`, permissions: { ...permissions, version }, publishedAt, keyId: `ed25519:${'ef'.repeat(32)}`, description: 'Read a web page in a clean view.', apiVersion: '1.0.0', minOctipus: '0.7.0' });
 
 test('an empty marketplace', () => {
@@ -72,9 +70,12 @@ test('with fixture data', () => {
   assert.match(page, /What it asks for/);
   assert.match(page, /host API: model:complete, notes:write, tasks:write, web:read/);
   assert.match(page, /Changes data in the connected system/);
-  assert.match(page, /schedule digest 0 7 \* \* 1 \(UTC\) → reader_action \(read\), run as the installing admin, unattended/);
+  assert.match(page, /schedule digest 0 7 \* \* 1 \(UTC\) → reader_action \(read\) with \{&quot;limit&quot;:5\}, run as the installing admin, unattended/);
   assert.match(page, /command \/read → read_url \(read\), run as the user who types it/);
-  assert.match(page, /pages: 1 page/);
+  assert.match(page, /pages: Reader \(\/plugins\/reader\/read\)/);
+  assert.match(page, /Adds the page &quot;Reader&quot;: \/read → index\.html/);
+  assert.match(page, /Serves its page files: ui\/, sha256 be6a9400341b5851b0091846224ea4262fdbd496bc22645e2135b9c38488dbfd/);
+  assert.match(page, /prompt: prompt\.md is added to the system prompt of agents of the roles researcher, for every user, fenced as third-party text \(sha256 (ab){32}\)/);
   assert.match(page, /Install in Octipus/);
   assert.match(page, /octi plugin install reader/);
   assert.match(page, /revoked: a test revocation/);

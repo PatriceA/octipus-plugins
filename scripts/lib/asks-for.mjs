@@ -4,6 +4,11 @@
 // confirmation an admin sees when enabling the plugin. Keep these strings in
 // step with that page; they are copied, not invented.
 //
+// The permissions are the CLI's (scripts/lib/permissions.mjs): each item
+// says what it is bound to (a schedule's cron, tool and input, the prompt's
+// sha256, a page's entry, the page files' hash), in the words of Octipus's
+// install consent (src/shared/plugin-declarations.ts).
+//
 // Shared by the site (the plugin page) and the PR summary.
 
 export const EFFECT_TEXT = {
@@ -109,38 +114,38 @@ export function asksFor(perm, { name } = {}) {
   }
   for (const x of arr(c.schedules)) {
     if (typeof x !== 'object' || !x) { items.push({ text: `schedule ${x}` }); continue; }
-    items.push({ text: `schedule ${x.id} ${x.cron} (UTC) → ${x.tool} (${effectOf(p, x.tool, x.effect)}), run as the installing admin, unattended` });
+    const input = x.input !== undefined ? ` with ${JSON.stringify(x.input)}` : '';
+    items.push({ text: `schedule ${x.id} ${x.cron} (UTC) → ${x.tool} (${effectOf(p, x.tool, x.effect)})${input}, run as the installing admin, unattended` });
   }
   for (const x of arr(c.events)) {
     if (typeof x !== 'object' || !x) { items.push({ text: `on ${x}` }); continue; }
     items.push({ text: `on ${x.on} of every user → ${x.tool} (${effectOf(p, x.tool, x.effect)}), run as that user (ids only)` });
   }
-  if (c.context) {
-    const tool = typeof c.context === 'object' ? c.context.tool : c.context;
+  if (c.context && typeof c.context === 'object') {
     items.push({
-      text: `context: ${tool} (${effectOf(p, tool, c.context.effect)}) receives the message of every turn of every user — root agents and workers, ${roles(c.context.roles)} — and its answer is put in front of the agent`,
+      text: `context: ${c.context.tool} (${effectOf(p, c.context.tool, c.context.effect)}) receives the message of every turn of every user — root agents and workers, ${roles(c.context.roles)} — and its answer is put in front of the agent`,
       tone: 'warn',
     });
   }
-  if (c.prompt) {
-    const file = typeof c.prompt === 'object' ? c.prompt.file : c.prompt;
-    items.push({ text: `prompt: ${file} is added to the system prompt of ${roles(c.prompt.roles)}, for every user, fenced as third-party text` });
+  if (c.prompt && typeof c.prompt === 'object') {
+    items.push({
+      text: `prompt: ${c.prompt.file} is added to the system prompt of ${roles(c.prompt.roles)}, for every user, fenced as third-party text${c.prompt.sha256 ? ` (sha256 ${c.prompt.sha256})` : ''}`,
+    });
   }
   if (items.length) {
     sections.push({ id: 'contributions', title: 'Contributions', lead: 'What it adds besides tools; nothing of it is active until an admin approves it when enabling.', items, notes: [] });
   }
 
-  const pages = Array.isArray(p.pages) ? p.pages : [];
-  const pageCount = Array.isArray(p.pages) ? p.pages.length : typeof p.pages === 'number' ? p.pages : 0;
-  if (pageCount > 0) {
-    const labels = pages.length
-      ? pages.map((pg) => (typeof pg === 'object' && pg ? `${pg.title ?? pg.path} (/plugins/${pluginName}/${pg.path ?? ''})` : String(pg)))
-      : [`${pageCount} page${pageCount === 1 ? '' : 's'}`];
+  const pages = arr(p.pages).filter((pg) => pg && typeof pg === 'object');
+  if (pages.length > 0) {
     sections.push({
       id: 'pages',
       title: 'Pages',
-      lead: `pages: ${labels.join(', ')}`,
-      items: [],
+      lead: `pages: ${pages.map((pg) => `${pg.title} (/plugins/${pluginName}/${pg.path})`).join(', ')}`,
+      items: [
+        ...pages.map((pg) => ({ text: `Adds the page "${pg.title}": /${pg.path} → ${pg.entry}` })),
+        ...(p.ui && typeof p.ui === 'object' ? [{ text: `Serves its page files: ${p.ui.dir}/${p.ui.sha256 ? `, sha256 ${p.ui.sha256}` : ''}` }] : []),
+      ],
       notes: ['Its pages are added to the sidebar while it is enabled, and run in a sandboxed frame that reaches the package only through the page bridge.'],
     });
   }
@@ -172,7 +177,7 @@ export function asksFor(perm, { name } = {}) {
 export function asksForLines(perm, opts) {
   return asksFor(perm, opts).flatMap((s) => [
     s.lead,
-    ...(s.id === 'contributions' ? s.items.map((i) => `  ${i.text}`) : []),
+    ...(s.id === 'contributions' || s.id === 'pages' ? s.items.map((i) => `  ${i.text}`) : []),
     ...s.notes.filter((n) => typeof n === 'object' && n.tone === 'warn').map((n) => n.text),
   ]);
 }

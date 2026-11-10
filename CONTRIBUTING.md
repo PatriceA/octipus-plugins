@@ -94,10 +94,12 @@ outside their own directory and `/tmp`.
 CI checks your pull request with the base branch's scripts, never the ones
 in your pull request, and posts the summary as a comment, for a fork too.
 For a new plugin it lists everything the plugin asks for; for an update, only
-what changed since the published version. Anything new, wider or changed (a
-host scope, a network host, a tool effect, a command, schedule, event,
-prompt, context or page, `trustedInput`, the runtime) adds the label
-`needs-security-review`. A change to anything outside your
+what changed since the published version. Anything new or wider (a host
+scope, a network host, a tool or a wider tool effect, a new or retargeted
+command, a schedule's tool or cron, a new event handler, other prompt text,
+prompt or context roles that reach more agents, another context tool, a new
+or changed page or other page files, `trustedInput`, a higher
+`maxProtection`) adds the label `needs-security-review`. A change to anything outside your
 `plugins/<name>/` directory adds `needs-maintainer-review` and needs the code
 owner's review: keep a plugin pull request to its directory.
 

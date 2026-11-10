@@ -40,7 +40,7 @@ import { validateCheckResult } from './lib/check-result.mjs';
 import { assertTreeClean, changedPaths, checkCommit, exportTree, git, lsTree, showFile } from './lib/git.mjs';
 import { checkListing, LISTING_FILE, listingImages, listingWarnings, unknownLicenses } from './lib/listing.mjs';
 import { cli, octipusRef, REPO_ROOT } from './lib/octi.mjs';
-import { diffPermissions, stableStringify } from './lib/permissions.mjs';
+import { diffPermissions, permissionsProblems, stableStringify } from './lib/permissions.mjs';
 import { nameProblem, publishedDiff, revokedDiff, validatePublished, validateRevoked, versionProblem } from './lib/records.mjs';
 import { changedPluginDirs, isSkipped, latestPublished, LIMITS, MANIFEST, measureTree, outsidePluginPaths, parseJson, PLUGINS_DIR } from './lib/repo.mjs';
 import { checkRelPath, readFileUnder, SafeDir } from './lib/safe-fs.mjs';
@@ -166,11 +166,19 @@ export async function checkPlugin(dir, dirName, { published = {} } = {}) {
     }
   }
 
-  // 4. Permissions: in-process refused.
+  // 4. Permissions: in the exact shape an index carries (the host compares
+  // the whole object with what it recomputes), in-process refused.
   try {
-    r.permissions = await cli.permissions(dir);
-    if (r.permissions.runtime === 'in-process') r.errors.push('runtime "in-process" is refused: the marketplace carries sandboxed packages only');
-    step('octi plugin permissions', 'read');
+    const perm = await cli.permissions(dir);
+    const problems = permissionsProblems(perm);
+    if (problems.length) {
+      r.errors.push(...problems.map((p) => `octi plugin permissions: ${p}`));
+      step('octi plugin permissions', 'not the index shape');
+    } else {
+      r.permissions = perm;
+      if (perm.runtime === 'in-process') r.errors.push('runtime "in-process" is refused: the marketplace carries sandboxed packages only');
+      step('octi plugin permissions', 'read');
+    }
   } catch (err) {
     r.errors.push(`octi plugin permissions: ${err.message}`);
     step('octi plugin permissions', 'error');

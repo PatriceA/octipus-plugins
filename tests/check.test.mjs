@@ -110,3 +110,44 @@ test('H5: every path outside plugins/<name>/ is listed', async () => {
   assert.deepEqual(r.outside.sort(), ['OCTIPUS_REF', 'plugins/_template/README.md', 'scripts/check.mjs']);
   assert.equal(r.needsMaintainer, true);
 });
+
+// M3: the diff reads what each contribution and page is bound to (the
+// CLI's permissions), so a change that asks for nothing new is not a
+// widening, and a change of the page files is.
+test('M3: against a published version, only what asks for more widens', async () => {
+  const { cli } = await import('../scripts/lib/octi.mjs');
+  const { serializeSignature } = await import('../scripts/lib/records.mjs');
+  m.g('checkout', '-q', '-B', 'published-base', base);
+  const keyId = `ed25519:${'ab'.repeat(32)}`;
+  const record = {
+    sha256: 'cd'.repeat(32), contentHash: (await cli.hash(join(m.repo, 'plugins', 'reader'))).contentHash, permissions: await cli.permissions(join(m.repo, 'plugins', 'reader')),
+    publishedAt: '2026-11-01T00:00:00Z', keyId, signatureFile: serializeSignature({ alg: 'ed25519', keyId, signature: `${'A'.repeat(86)}==` }),
+    commit: base, dir: 'reader', description: 'Reads.', apiVersion: '1.0.0', minOctipus: null,
+    listing: JSON.parse(readFileSync(join(m.repo, 'plugins', 'reader', 'marketplace.json'), 'utf8')),
+  };
+  writeFileSync(join(m.repo, 'published.json'), `${JSON.stringify({ reader: { '1.0.0': record } }, null, 2)}\n`);
+  m.g('add', '-A');
+  m.g('commit', '-q', '-m', 'reader 1.0.0 published');
+  const pubBase = m.g('rev-parse', 'HEAD');
+  const bump = (root) => edit('plugins/reader/octipus-plugin.json', (t) => t.replace('"version": "1.0.0"', '"version": "1.0.1"'))(root);
+  const at = async (change) => {
+    m.g('checkout', '-q', '-B', `case-${i += 1}`, pubBase);
+    change(m.repo);
+    m.g('add', '-A');
+    m.g('commit', '-q', '-m', 'case');
+    try {
+      return (await checkCommits({ repo: m.repo, base: pubBase, head: 'HEAD', indexFrom: join(tmp, 'no-index.json'), keysFrom: m.keysFile })).plugins.find((p) => p.name === 'reader');
+    } finally {
+      m.g('checkout', '-q', 'main');
+    }
+  };
+  const same = await at((root) => { bump(root); edit('plugins/reader/README.md', (t) => `${t}\nMore.\n`)(root); });
+  assert.equal(same.publishedVersion, '1.0.0');
+  assert.equal(same.widened, false, JSON.stringify(same.changes));
+  assert.deepEqual(same.changes, []);
+  const ui = await at((root) => { bump(root); edit('plugins/reader/ui/app.js', (t) => `${t}\n// changed\n`)(root); });
+  assert.equal(ui.widened, true);
+  assert.deepEqual(ui.changes, [{ change: 'changed', text: 'page files (ui/)', widens: true }]);
+  const page = await at((root) => { bump(root); edit('plugins/reader/octipus-plugin.json', (t) => t.replace('"title": "Reader", "icon"', '"title": "Read it", "icon"'))(root); });
+  assert.deepEqual(page.changes, [{ change: 'changed', text: 'page read: "Reader" index.html → "Read it" index.html', widens: true }]);
+});

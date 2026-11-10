@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { diffPermissions } from './permissions.mjs';
 import { codeSpan, fence, renderSummary, SUMMARY_MARKER } from './summary.mjs';
+import { smallPermissions } from '../../tests/fixtures/permissions.mjs';
 
-const perm = { name: 'x', version: '1.1.0', runtime: 'package', host: ['web:read', 'notes:read'], network: [], tools: [{ name: 't', effect: 'read' }], contributions: {}, pages: 0, trustedInput: false };
+const perm = smallPermissions({ version: '1.1.0', host: ['web:read', 'notes:read'] });
 const plugin = (over) => ({ dir: 'plugins/x', name: 'x', version: '1.1.0', publishedVersion: '1.0.0', template: false, ok: true, widened: false, firstVersion: false, errors: [], warnings: [], steps: [], permissions: perm, changes: [], ...over });
 const result = (plugins, over = {}) => ({ schema: 1, kind: 'octipus-plugins-check', base: 'a'.repeat(40), head: 'b'.repeat(40), octipusRef: 'c'.repeat(40), ok: plugins.every((p) => p.ok), widened: plugins.some((p) => p.widened), needsMaintainer: false, problems: [], outside: [], outsideTotal: 0, plugins, ...over });
 

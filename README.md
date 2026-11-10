@@ -114,9 +114,16 @@ and renders the comment itself ([`scripts/report.mjs`](scripts/report.mjs)):
 every string from the pull request sits in a code span or a fenced block
 longer than any backtick run in it. It adds labels and never removes them:
 
-- `needs-security-review`: a plugin asks for something new, wider or
-  changed (any change in commands, schedules, events, prompt, context or
-  pages counts, until the CLI's summary shows them in full);
+- `needs-security-review`: a plugin asks for something new or wider, by
+  Octipus's own rules (`diffPermissions` in `src/shared/plugin-permissions.ts`,
+  mirrored in [`scripts/lib/permissions.mjs`](scripts/lib/permissions.mjs)):
+  a host scope, a network host or a tool; a wider tool effect; a new or
+  retargeted command; a schedule's tool or cron; an added event handler; a
+  changed prompt file or text (its sha256); prompt or context roles that
+  reach more agents; another context tool; an added or changed page; other
+  page files (the `ui` hash); `trustedInput`; a higher `maxProtection`. A
+  schedule's `input` alone, a removal or a narrowing is listed but does not
+  add the label;
 - `needs-maintainer-review`: the pull request touches anything outside
   `plugins/<name>/` (`published.json`, `revoked.json`, `keys/`, `scripts/`,
   `site/`, the workflows, `OCTIPUS_REF`, `package*.json`, `tests/`, the
