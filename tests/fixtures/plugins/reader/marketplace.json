@@ -1,0 +1,12 @@
+{
+  "title": "Reader (test fixture)",
+  "summary": "A copy of Octipus's example Reader plugin, used only by this repository's tests. Never published.",
+  "category": "knowledge",
+  "tags": ["reading", "notes", "fixture"],
+  "icon": "icon.png",
+  "screenshots": ["icon.png"],
+  "homepage": "https://github.com/PatriceA/octipus/tree/main/plugins/reader",
+  "license": "MIT",
+  "author": { "name": "Octipus", "url": "https://octipus.cc" },
+  "minOctipus": "0.7.0"
+}
