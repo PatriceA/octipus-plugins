@@ -1,17 +1,15 @@
 // The repository's plugins, published.json and revoked.json.
-import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { closeSync, constants as C, existsSync, lstatSync, openSync, readdirSync, writeSync } from 'node:fs';
+import { join } from 'node:path';
+import { RESERVED_NAMES, validatePublished, validateRevoked } from './records.mjs';
+import { readFileUnder, walkRegular } from './safe-fs.mjs';
 import { compareSemver, maxSemver } from './semver.mjs';
 
-export const PLUGINS_DIR = 'plugins';
-export const MANIFEST = 'octipus-plugin.json';
+export { RESERVED_NAMES };
+export { changedPluginDirs, isSkipped, outsidePluginPaths, PLUGINS_DIR } from './paths.mjs';
+import { isSkipped, PLUGINS_DIR } from './paths.mjs';
 
-/**
- * Names a plugin cannot take because the site uses the path
- * (`plugins.octipus.cc/<name>/`), on top of Octipus's own reserved names.
- */
-export const RESERVED_NAMES = new Set(['octipus', 'mcp', 'system', 'plugin', 'publish', 'dl', 'index', 'schema', 'keys', 'design', 'icons', 'assets', 'search', 'category', 'categories', 'about', 'docs']);
+export const MANIFEST = 'octipus-plugin.json';
 
 /** The install limits of an Octipus host (docs/PLUGIN-PACKAGES.md#remote-install). */
 export const LIMITS = {
@@ -23,52 +21,35 @@ export const LIMITS = {
   indexBytes: 1024 * 1024,
 };
 
-/** A plugin directory that is never published: `_template`, `.anything`. */
-export function isSkipped(dirName) {
-  return dirName.startsWith('_') || dirName.startsWith('.');
-}
 
-/** The plugin directory names under plugins/ (sorted), without the skipped ones unless asked. */
+/** The plugin directory names under `root`/plugins (sorted; real directories only), without the skipped ones unless asked. */
 export function pluginDirs(root, { includeSkipped = false } = {}) {
   const dir = join(root, PLUGINS_DIR);
   if (!existsSync(dir)) return [];
+  if (!lstatSync(dir).isDirectory()) throw new Error('plugins/ is not a directory');
   return readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isDirectory() && (includeSkipped || !isSkipped(d.name)))
     .map((d) => d.name)
     .sort();
 }
 
-/** The plugin directory names touched by a list of changed paths (repo-relative, `/`-separated). */
-export function changedPluginDirs(paths) {
-  const out = new Set();
-  for (const p of paths) {
-    const m = /^plugins\/([^/]+)\//.exec(p.replaceAll('\\', '/'));
-    if (m) out.add(m[1]);
-  }
-  return [...out].sort();
+
+
+/** Parse JSON text, naming the file in the error. */
+export function parseJson(text, what) {
+  try { return JSON.parse(text); } catch (err) { throw new Error(`${what}: ${err.message}`); }
 }
 
-/** Paths changed between `base` and HEAD (`git diff --name-only base...HEAD`). */
-export function gitChangedPaths(root, base) {
-  const out = execFileSync('git', ['diff', '--name-only', '-z', `${base}...HEAD`], { cwd: root, encoding: 'utf8' });
-  return out.split('\0').filter(Boolean);
-}
-
-export function readJson(file) {
-  return JSON.parse(readFileSync(file, 'utf8'));
-}
-
-export function writeJson(file, value) {
-  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-/** published.json: name → version → { sha256, contentHash, permissions, publishedAt, … }. */
+/** published.json under `root`, read without following links and validated strictly. */
 export function readPublished(root) {
-  const file = join(root, 'published.json');
-  if (!existsSync(file)) return {};
-  const data = readJson(file);
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('published.json: expected an object of name → version → record');
-  return data;
+  const text = readFileUnder(root, 'published.json', { encoding: 'utf8', optional: true, maxBytes: 16 * 1024 * 1024 });
+  return validatePublished(text === null ? {} : parseJson(text, 'published.json'));
+}
+
+/** revoked.json under `root`, read without following links and validated strictly. */
+export function readRevoked(root) {
+  const text = readFileUnder(root, 'revoked.json', { encoding: 'utf8', optional: true, maxBytes: 4 * 1024 * 1024 });
+  return validateRevoked(text === null ? { packages: [], keys: [] } : parseJson(text, 'revoked.json'));
 }
 
 /** The newest published version of `name`, or null. */
@@ -86,37 +67,26 @@ export function withPublished(published, name, version, record) {
   return Object.fromEntries(Object.entries(next).sort(([a], [b]) => a.localeCompare(b)));
 }
 
-/** revoked.json: `{ packages: [{ name, version, reason }], keys: [{ keyId, reason }] }`. */
-export function readRevoked(root) {
-  const file = join(root, 'revoked.json');
-  const data = existsSync(file) ? readJson(file) : { packages: [], keys: [] };
-  const problems = [];
-  if (!Array.isArray(data.packages)) problems.push('revoked.json: "packages" must be a list');
-  if (!Array.isArray(data.keys)) problems.push('revoked.json: "keys" must be a list');
-  for (const p of data.packages ?? []) if (!p?.name || !p?.version || !p?.reason) problems.push(`revoked.json: a package entry needs name, version and reason: ${JSON.stringify(p)}`);
-  for (const k of data.keys ?? []) if (!/^ed25519:[0-9a-f]{64}$/.test(k?.keyId ?? '') || !k?.reason) problems.push(`revoked.json: a key entry needs keyId (ed25519:<64 hex>) and reason: ${JSON.stringify(k)}`);
-  if (problems.length) throw new Error(problems.join('\n'));
-  return { packages: data.packages, keys: data.keys };
+/** The text published.json is written as. */
+export const serializePublished = (data) => `${JSON.stringify(data, null, 2)}\n`;
+
+/** Overwrite the regular file `root/name` (never through a link). */
+export function overwriteRegular(root, name, text) {
+  const fd = openSync(join(root, name), C.O_WRONLY | C.O_TRUNC | C.O_NOFOLLOW);
+  try {
+    const buf = Buffer.from(text, 'utf8');
+    let off = 0;
+    while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
- * Count the files and bytes under `dir` (regular files; links are counted as
- * problems, since an install refuses them).
+ * Count the files and bytes under `dir`; a link or special file throws
+ * (an install refuses them, and nothing here ever follows one).
  */
 export function measureTree(dir) {
-  let files = 0;
-  let bytes = 0;
-  const links = [];
-  const walk = (d) => {
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      const p = join(d, e.name);
-      const st = lstatSync(p);
-      if (st.isSymbolicLink()) links.push(relative(dir, p).split(sep).join('/'));
-      else if (st.isDirectory()) walk(p);
-      else if (st.isFile()) { files += 1; bytes += st.size; }
-      else links.push(relative(dir, p).split(sep).join('/'));
-    }
-  };
-  walk(dir);
-  return { files, bytes, links };
+  const { files } = walkRegular(dir);
+  return { files: files.length, bytes: files.reduce((n, f) => n + f.size, 0), links: [] };
 }

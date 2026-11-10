@@ -3,13 +3,16 @@
 // header and footer around a page's content.
 //
 // No cookies, no analytics, no external scripts: the only remote resource is
-// the Manrope font from Google Fonts, and the two scripts are inline (their
-// hashes go into the CSP the build writes to _headers).
+// the Manrope font from Google Fonts. The two inline scripts are the files in
+// src/scripts/ (lib/inline-scripts.mjs): their hashes, computed from those
+// files, are the only scripts the CSP allows, and the build fails on any
+// other script in a page (astro.config.mjs).
 import './tokens.css';
 import './ocean.css';
 import OceanAtmosphere from './OceanAtmosphere.astro';
 import OceanFooter from './OceanFooter.astro';
 import OceanHeader from './OceanHeader.astro';
+import { INLINE_SCRIPTS } from '../lib/inline-scripts.mjs';
 
 interface Props { title: string; description: string; path: string }
 const { title, description, path } = Astro.props;
@@ -28,7 +31,7 @@ const canonical = new URL(path, 'https://plugins.octipus.cc').href;
     <meta property="og:type" content="website">
     <meta property="og:url" content={canonical}>
     <meta name="theme-color" content="#061b25">
-    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="referrer" content="no-referrer">
     <link rel="icon" href="/favicon.ico" sizes="32x32">
     <link rel="apple-touch-icon" href="/icons/mobile-180.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -43,6 +46,6 @@ const canonical = new URL(path, 'https://plugins.octipus.cc').href;
       <slot />
     </main>
     <OceanFooter />
-    <script is:inline>(()=>{const r=document.querySelector(".ocean-header");let d=!1;function a(){r?.classList.toggle("is-floating",window.scrollY>72),d=!1}window.addEventListener("scroll",()=>{d||(d=!0,requestAnimationFrame(a))},{passive:!0});a();const n=document.querySelector(".ocean-menu"),e=document.querySelector("#ocean-navigation-mobile");function i(t=!1){e&&(e.hidden=!0),n?.setAttribute("aria-expanded","false"),t&&n?.focus()}n?.addEventListener("click",()=>{e&&(e.hidden=!e.hidden,n.setAttribute("aria-expanded",String(!e.hidden)))});e?.querySelectorAll("a").forEach(t=>t.addEventListener("click",()=>i()));document.addEventListener("keydown",t=>{t.key==="Escape"&&e&&!e.hidden&&i(!0)});window.matchMedia("(min-width: 801px)").addEventListener("change",t=>{t.matches&&i()});const m=document.querySelector(".motion-toggle");m?.addEventListener("click",()=>{const p=document.documentElement.classList.toggle("motion-paused");m.setAttribute("aria-pressed",String(p));m.textContent=p?"Play motion":"Pause motion"})})();</script>
+    <script is:inline set:html={INLINE_SCRIPTS.header}></script>
   </body>
 </html>

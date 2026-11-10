@@ -80,6 +80,8 @@ export function normalizePermissions(p = {}) {
     prompt: present(c.prompt) ? c.prompt : null,
     context: present(c.context) ? c.context : null,
     pages: pageList(p.pages),
+    contributionsRaw: p.contributions ?? null,
+    pagesRaw: p.pages ?? null,
     trustedInput: p.trustedInput === true || (typeof p.trustedInput === 'object' && p.trustedInput !== null && p.trustedInput.trustedInput === true),
     maxProtection: typeof p.maxProtection === 'number' ? p.maxProtection : null,
   };
@@ -119,20 +121,31 @@ export function diffPermissions(before, after) {
   }
   for (const [name, effect] of b.tools) if (!a.tools.has(name)) add('tool', 'removed', `tool ${name} (${effect})`, false);
 
+  // TODO(octipus, M3): the CLI's permissions summary names a command, a
+  // schedule or an event, and counts pages, but does not show what changed
+  // inside one (its tool, its cron, its prompt text, a page's entry). Until
+  // `octi plugin permissions` reports those in full, ANY change in these
+  // sections, even only by name or count, and even a removal, counts as
+  // widening: a maintainer reads the manifest diff.
+  const OPAQUE = true;
   for (const kind of ['commands', 'schedules', 'events']) {
-    for (const [k, label] of a[kind]) if (!b[kind].has(k)) add('contribution', 'added', label, true);
-    for (const [k, label] of b[kind]) if (!a[kind].has(k)) add('contribution', 'removed', label, false);
+    for (const [k, label] of a[kind]) if (!b[kind].has(k)) add('contribution', 'added', label, OPAQUE);
+    for (const [k, label] of b[kind]) if (!a[kind].has(k)) add('contribution', 'removed', label, OPAQUE);
   }
   for (const kind of ['prompt', 'context']) {
     const was = b[kind];
     const now = a[kind];
-    if (!was && now) add('contribution', 'added', `${kind}: ${describeContribution(kind, now)}`, true);
-    else if (was && !now) add('contribution', 'removed', `${kind}`, false);
-    else if (was && now && stableStringify(was) !== stableStringify(now)) add('contribution', 'changed', `${kind}: ${describeContribution(kind, now)}`, true);
+    if (!was && now) add('contribution', 'added', `${kind}: ${describeContribution(kind, now)}`, OPAQUE);
+    else if (was && !now) add('contribution', 'removed', `${kind}`, OPAQUE);
+    else if (was && now && stableStringify(was) !== stableStringify(now)) add('contribution', 'changed', `${kind}: ${describeContribution(kind, now)}`, OPAQUE);
+  }
+  if (stableStringify(b.contributionsRaw) !== stableStringify(a.contributionsRaw) && !changes.some((c) => c.kind === 'contribution')) {
+    add('contribution', 'changed', 'contributions (a field the summary does not name)', OPAQUE);
   }
 
-  for (const p of a.pages) if (!b.pages.includes(p)) add('pages', 'added', `page ${p}`, true);
-  for (const p of b.pages) if (!a.pages.includes(p)) add('pages', 'removed', `page ${p}`, false);
+  for (const p of a.pages) if (!b.pages.includes(p)) add('pages', 'added', `page ${p}`, OPAQUE);
+  for (const p of b.pages) if (!a.pages.includes(p)) add('pages', 'removed', `page ${p}`, OPAQUE);
+  if (stableStringify(b.pagesRaw) !== stableStringify(a.pagesRaw) && !changes.some((c) => c.kind === 'pages')) add('pages', 'changed', 'pages', OPAQUE);
 
   if (!b.trustedInput && a.trustedInput) add('trustedInput', 'added', 'model.trustedInput (its model calls may be approved to run on CLI lanes)', true);
   if (b.trustedInput && !a.trustedInput) add('trustedInput', 'removed', 'model.trustedInput', false);

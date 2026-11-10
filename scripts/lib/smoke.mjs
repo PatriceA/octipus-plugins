@@ -1,16 +1,20 @@
-// The sandbox smoke run: start a package's server the way its manifest says,
-// say `initialize` and ask for `tools/list` over stdio, and stop it.
+// The sandbox the `test` job runs a plugin's own code in (its `npm test` and
+// a smoke run of its server: `initialize`, `tools/list` over stdio).
 //
-// Under bwrap (when it is there and works) the server gets a read-only view
-// of the system and its own directory, a fresh /tmp, its data directory as
-// the only writable place, and no network (--unshare-all). It is a smoke
-// test, not Octipus's sandbox: it shows that the server starts and answers
-// without network or a writable package directory, as it will have to.
+// bwrap, always (there is no unsandboxed fallback): no network
+// (--unshare-all), a read-only view of the system directories and of Node,
+// nothing of the runner's home or workspace, a fresh /tmp, the plugin's own
+// copy at /work (writable only for its tests) and a data directory at /data
+// for the server. It is a CI gate, not Octipus's sandbox: it shows that the
+// tests pass and the server starts and answers without network.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+
+/** Where Node lives (its prefix: bin/node, bin/npm, lib/node_modules/npm). */
+export const NODE_PREFIX = dirname(dirname(process.execPath));
 
 /** Whether bwrap can start a sandbox here (installed, and user namespaces allowed). */
 export function bwrapWorks() {
@@ -18,52 +22,61 @@ export function bwrapWorks() {
   return r.status === 0;
 }
 
+const SYSTEM = ['/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/etc/alternatives', '/etc/ssl', '/etc/ca-certificates', '/etc/ld.so.cache', '/etc/ld.so.conf', '/etc/ld.so.conf.d', '/etc/localtime', '/etc/passwd', '/etc/group', '/etc/nsswitch.conf'];
+
 /**
- * Pick how to run: `required` fails without bwrap, `auto` falls back to a
- * plain process with a warning, `off` runs plain.
- * @returns {{ mode: 'bwrap'|'plain', warning?: string }}
+ * The bwrap command line: `work` at /work (read-only unless `writable`),
+ * `data` (if any) at /data, then `command args…` in /work.
  */
-export function chooseSandbox(want) {
-  if (want === 'off') return { mode: 'plain' };
-  if (bwrapWorks()) return { mode: 'bwrap' };
-  if (want === 'required') throw new Error('bwrap is required for the smoke run but cannot start a sandbox here (install bubblewrap; on Ubuntu 24.04 allow unprivileged user namespaces)');
-  return { mode: 'plain', warning: 'bwrap is not available here: the smoke run started the server without a sandbox' };
+export function sandboxArgs({ work, writable = false, data = null }, command, args) {
+  const out = [];
+  for (const p of SYSTEM) if (existsSync(p)) out.push('--ro-bind', p, p);
+  out.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--dir', '/tmp/home');
+  if (!SYSTEM.some((p) => NODE_PREFIX === p || NODE_PREFIX.startsWith(`${p}/`))) out.push('--ro-bind', NODE_PREFIX, NODE_PREFIX);
+  out.push(writable ? '--bind' : '--ro-bind', work, '/work');
+  if (data) out.push('--bind', data, '/data');
+  out.push('--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--chdir', '/work');
+  return [...out, '--', command, ...args];
 }
 
-function bwrapArgs(dir, dataDir, command, args) {
-  return [
-    '--ro-bind', '/', '/',
-    '--dev', '/dev',
-    '--proc', '/proc',
-    '--tmpfs', '/tmp',
-    '--ro-bind', dir, dir,
-    '--bind', dataDir, dataDir,
-    '--unshare-all',
-    '--die-with-parent',
-    '--new-session',
-    '--chdir', dir,
-    '--', command, ...args,
-  ];
+/** The environment inside the sandbox (bwrap --clearenv, then these, through `env`). */
+export function sandboxEnv(extra = {}) {
+  return { PATH: `${NODE_PREFIX}/bin:/usr/local/bin:/usr/bin:/bin`, HOME: '/tmp/home', LANG: 'C.UTF-8', TMPDIR: '/tmp', CI: 'true', ...extra };
+}
+
+/** `env K=V… command args…`, so the environment survives --clearenv. */
+function withEnv(env, command, args) {
+  return ['/usr/bin/env', [...Object.entries(env).map(([k, v]) => `${k}=${v}`), command, ...args]];
+}
+
+/** Run `command args…` in the sandbox; resolves `{ code, signal, output }` (the last 64 KB of stdout and stderr). */
+export function sandboxRun({ work, writable, data, env = {}, timeoutMs = 10 * 60_000 }, command, args) {
+  const [exe, argv] = withEnv(sandboxEnv(env), command, args);
+  return new Promise((resolvePromise) => {
+    const child = spawn('bwrap', sandboxArgs({ work, writable, data }, exe, argv), { stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+    const keep = (d) => { output = (output + d).slice(-65536); };
+    child.stdout.on('data', keep);
+    child.stderr.on('data', keep);
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.on('error', (err) => { clearTimeout(timer); resolvePromise({ code: null, signal: null, output: `cannot start bwrap: ${err.message}` }); });
+    child.on('close', (code, signal) => { clearTimeout(timer); resolvePromise({ code, signal, output }); });
+  });
 }
 
 /**
  * Start the server of the package in `dir` (manifest `server.command`/`args`)
  * and return `{ ok, tools: string[], serverInfo, error?, stderr }`.
  */
-export async function smokeRun(dir, manifest, { mode = 'plain', timeoutMs = 20_000 } = {}) {
+export async function smokeRun(dir, manifest, { timeoutMs = 20_000 } = {}) {
   const command = manifest?.server?.command;
   const args = Array.isArray(manifest?.server?.args) ? manifest.server.args.map(String) : [];
   if (typeof command !== 'string' || !command) return { ok: false, tools: [], error: 'the manifest names no server.command', stderr: '' };
   const dataDir = mkdtempSync(join(tmpdir(), 'octipus-smoke-data-'));
-  const env = {
-    PATH: process.env.PATH ?? '/usr/bin:/bin',
-    HOME: dataDir,
-    LANG: 'C.UTF-8',
-    TMPDIR: '/tmp',
-    OCTIPUS_PLUGIN_DATA_DIR: dataDir,
-  };
-  const [exe, argv] = mode === 'bwrap' ? ['bwrap', bwrapArgs(dir, dataDir, command, args)] : [command, args];
-  const child = spawn(exe, argv, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const [envExe, envArgv] = withEnv(sandboxEnv({ OCTIPUS_PLUGIN_DATA_DIR: '/data' }), command, args);
+  const exe = 'bwrap';
+  const argv = sandboxArgs({ work: dir, data: dataDir }, envExe, envArgv);
+  const child = spawn(exe, argv, { stdio: ['pipe', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (d) => { if (stderr.length < 20_000) stderr += d; });
   const pending = new Map();

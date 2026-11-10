@@ -4,6 +4,7 @@
 import OceanLayout from '../design/OceanLayout.astro';
 import { CONTRIBUTING } from '../design/links.mjs';
 import { CATEGORIES, CATEGORY_LABELS, loadIndex, pluginsFrom } from '../lib/data.mjs';
+import { INLINE_SCRIPTS } from '../lib/inline-scripts.mjs';
 import '../styles/market.css';
 
 const plugins = pluginsFrom(loadIndex());
@@ -71,6 +72,6 @@ const searchText = (p) => [p.latest.title, p.latest.summary, ...(p.latest.tags ?
     )}
   </section>
   {plugins.length > 0 && (
-    <script is:inline>(()=>{const f=document.querySelector("[data-finder]");if(!f)return;f.hidden=!1;const q=document.getElementById("q"),items=[...document.querySelectorAll("[data-plugin]")],chips=[...document.querySelectorAll("[data-category][aria-pressed]")],none=document.querySelector("[data-no-match]"),count=document.querySelector("[data-count]");let cat="";function run(){const words=q.value.toLowerCase().split(/\s+/).filter(Boolean);let n=0;for(const el of items){const ok=(!cat||el.dataset.category===cat)&&words.every(w=>el.dataset.search.includes(w));el.hidden=!ok;if(ok)n++}none.hidden=n>0;if(count)count.textContent=n+(n===1?" plugin":" plugins")}q.addEventListener("input",run);for(const c of chips)c.addEventListener("click",()=>{cat=c.dataset.category;for(const o of chips)o.setAttribute("aria-pressed",String(o===c));run()})})();</script>
+    <script is:inline set:html={INLINE_SCRIPTS.finder}></script>
   )}
 </OceanLayout>

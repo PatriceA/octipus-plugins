@@ -1,0 +1,14 @@
+# Everything outside plugins/<name>/ is the marketplace's own machinery:
+# the records (published.json, revoked.json), the keys, the scripts that
+# check, build and sign, the site, the workflows, OCTIPUS_REF, the package
+# files, the tests and the plugin template. A change to any of it needs the
+# maintainer's review (turn on "Require review from Code Owners" for main:
+# see README, "Branch protection").
+*                   @PatriceA
+
+# A plugin directory is reviewed by a maintainer under the review checklist
+# (docs/REVIEW-CHECKLIST.md), with the check summary; it has no code owner,
+# so its author's pull request does not wait on one.
+/plugins/*/
+# ... except the template, which is machinery too.
+/plugins/_template/ @PatriceA

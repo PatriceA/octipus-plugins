@@ -1,0 +1,97 @@
+name: Plugin checks report
+
+# Comment on and label a pull request with what `Plugin checks` found, for
+# forks too (H5). It runs on workflow_run, from the default branch only (its
+# own code, checked out from main), with the write token, and runs nothing of
+# the pull request:
+#   - the pull request is found from the event (its head repository, branch
+#     and commit), never from the artifact;
+#   - its changed files and the jobs' outcomes come from the API;
+#   - the `check` job's artifact (check-result.json) is data: validated
+#     strictly and rendered with escaping by scripts/report.mjs.
+# Labels are added, never removed: a maintainer removes them after review.
+
+on: # zizmor: ignore[dangerous-triggers] workflow_run is the point: it runs main's code with a write token, reads the PR's artifact as validated data only, and checks out and runs nothing of the PR
+  workflow_run:
+    workflows: [Plugin checks]
+    types: [completed]
+
+# One report at a time per pull request branch; a newer run waits, never cancels one half done.
+concurrency:
+  group: plugin-checks-report-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  report:
+    name: Comment and label
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # the run's jobs and its artifact
+      pull-requests: write # post or refresh the summary comment
+      issues: write # add the labels (labels are issue API)
+    steps:
+      - name: Check out the default branch (the report's own code)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: base
+          persist-credentials: false
+
+      - name: Download the check result (data)
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: check-result
+          path: result
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Comment and label
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const path = require('node:path');
+            const base = path.join(process.env.GITHUB_WORKSPACE, 'base');
+            const { buildReport, LABELS, readResult } = await import(path.join(base, 'scripts', 'report.mjs'));
+            const { SUMMARY_MARKER } = await import(path.join(base, 'scripts', 'lib', 'summary.mjs'));
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+
+            // The pull request, from the event: same head repository, branch and commit.
+            let number = null;
+            const same = (run.pull_requests ?? []).filter((p) => p.head?.sha === run.head_sha);
+            if (same.length === 1) number = same[0].number;
+            else {
+              const open = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', head: `${run.head_repository.owner.login}:${run.head_branch}`, per_page: 100 });
+              const match = open.filter((p) => p.head.sha === run.head_sha && p.head.repo?.id === run.head_repository.id);
+              if (match.length === 1) number = match[0].number;
+            }
+            if (!number) { core.setFailed(`no single open pull request for ${run.head_sha}`); return; }
+
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
+            const paths = files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, { owner, repo, run_id: run.id, attempt_number: run.run_attempt, per_page: 100 });
+            const conclusion = (name) => jobs.find((j) => j.name === name)?.conclusion ?? 'missing';
+            const { body, labels } = buildReport({
+              resultText: readResult(path.join(process.env.GITHUB_WORKSPACE, 'result')),
+              paths,
+              filesTruncated: files.length >= 3000,
+              checkJob: conclusion('Check changed plugins (data only)'),
+              testJob: conclusion('Plugin tests (sandboxed)'),
+            });
+
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+            const mine = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.startsWith(SUMMARY_MARKER));
+            if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+
+            for (const name of labels) {
+              const label = Object.values(LABELS).find((l) => l.name === name);
+              try { await github.rest.issues.getLabel({ owner, repo, name }); } catch { await github.rest.issues.createLabel({ owner, repo, ...label }); }
+            }
+            if (labels.length) await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels });

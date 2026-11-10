@@ -54,7 +54,9 @@ test('contributions, pages, trustedInput, runtime and maxProtection', () => {
   assert.equal(diffPermissions(base, withP({ contributions: { ...base.contributions, context: { tool: 'list' } } })).widened, true);
   assert.equal(diffPermissions(base, withP({ contributions: { ...base.contributions, prompt: { file: 'notes.md' } } })).widened, true);
   assert.deepEqual(widening(diffPermissions(base, withP({ pages: 2 }))), ['page page 1', 'page page 2']);
-  assert.equal(diffPermissions(withP({ pages: 2 }), withP({ pages: 1 })).widened, false);
+  // M3: until the CLI shows what is inside a page or a contribution, any
+  // change there (fewer pages too) is read as widening.
+  assert.equal(diffPermissions(withP({ pages: 2 }), withP({ pages: 1 })).widened, true);
   assert.equal(diffPermissions(base, withP({ trustedInput: true })).widened, true);
   assert.equal(diffPermissions(withP({ trustedInput: true }), base).widened, false);
   assert.equal(diffPermissions(base, withP({ runtime: 'in-process' })).widened, true);
@@ -66,4 +68,14 @@ test('an apiVersion change is reported but does not widen', () => {
   const d = diffPermissions(base, withP({ apiVersion: '1.1.0' }));
   assert.equal(d.widened, false);
   assert.equal(d.changes[0].kind, 'apiVersion');
+});
+
+test('M3: any change in commands, schedules, events, prompt, context or pages widens, even a removal or a rename', () => {
+  const cmd = { name: 'go', tool: 'list' };
+  const was = withP({ contributions: { ...base.contributions, commands: [cmd], events: [{ on: 'note.created', tool: 'list' }] }, pages: [{ path: 'a', title: 'A' }] });
+  assert.equal(diffPermissions(was, withP({ contributions: { ...base.contributions, events: [{ on: 'note.created', tool: 'list' }] }, pages: [{ path: 'a', title: 'A' }] })).widened, true, 'a removed command');
+  assert.equal(diffPermissions(was, withP({ contributions: { ...was.contributions, commands: [{ name: 'go2', tool: 'list' }] }, pages: [{ path: 'a', title: 'A' }] })).widened, true, 'a renamed command');
+  assert.equal(diffPermissions(was, withP({ contributions: was.contributions, pages: [{ path: 'a', title: 'B' }] })).widened, true, 'a renamed page');
+  assert.equal(diffPermissions(was, withP({ contributions: { ...was.contributions, prompt: false, context: false, extra: [1] }, pages: [{ path: 'a', title: 'A' }] })).widened, true, 'a field the summary does not name');
+  assert.equal(diffPermissions(was, structuredClone(was)).widened, false, 'nothing changed');
 });

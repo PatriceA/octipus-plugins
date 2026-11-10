@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { REPO_ROOT } from './octi.mjs';
+import { isSafeRelPath } from './safe-fs.mjs';
+import { displayTextProblem } from './text.mjs';
 
 export const LISTING_FILE = 'marketplace.json';
 
@@ -35,10 +37,21 @@ function describeError(e) {
   }
 }
 
-/** Problems with a parsed marketplace.json (an empty list when it fits). */
+/**
+ * Problems with a parsed marketplace.json (an empty list when it fits): the
+ * schema, then what a schema cannot say (H2, L5): every image path safe
+ * (no `..`, nothing absolute, no backslash), and no invisible, bidi or
+ * lookalike-mixing character in the title, summary or author name.
+ */
 export function checkListing(listing) {
   if (!validate(listing)) return validate.errors.map(describeError);
-  return [];
+  const problems = [];
+  for (const img of listingImages(listing)) if (!isSafeRelPath(img)) problems.push(`${JSON.stringify(img)}: an image is a path inside the plugin directory`);
+  for (const [where, text] of [['title', listing.title], ['summary', listing.summary], ['author.name', listing.author?.name]]) {
+    const p = displayTextProblem(text);
+    if (p) problems.push(`${where}: ${p}`);
+  }
+  return problems;
 }
 
 /** Licence ids in an SPDX expression that are not on the known list (warnings, not errors). */

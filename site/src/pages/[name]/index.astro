@@ -25,7 +25,7 @@ const short = (h) => String(h ?? '').replace(/^sha256:/, '').slice(0, 12);
 const title = l.title ?? plugin.name;
 const config = JSON.stringify({ plugins: {
   registries: [{ name: 'Octipus', url: 'https://plugins.octipus.cc/index.json', publisher: 'Octipus' }],
-  trustedPublishers: [{ name: 'Octipus', publicKey: '<the PEM of /keys/octipus.pub>' }],
+  trustedPublishers: [{ name: 'Octipus', publicKey: '<the PEM of a signing key in /keys.json, checked against its root signature>' }],
 } }, null, 2);
 ---
 <OceanLayout title={`${title} — Octipus plugins`} description={l.summary || l.description} path={`/${plugin.name}/`}>
@@ -61,7 +61,7 @@ const config = JSON.stringify({ plugins: {
       )}
       <section aria-labelledby="readme-title">
         <h2 id="readme-title" class="sr-only">About {title}</h2>
-        <div class="prose" set:html={readmeHtml || `<p>${l.description ?? ''}</p>`} />
+        {readmeHtml ? <div class="prose" set:html={readmeHtml} /> : <div class="prose"><p>{l.description ?? ''}</p></div>}
       </section>
       <section aria-labelledby="versions-title">
         <h2 id="versions-title">Versions</h2>
@@ -99,7 +99,7 @@ const config = JSON.stringify({ plugins: {
         <h3>An Octipus without the built-in marketplace</h3>
         <p>Add the registry and the marketplace key to the config, then use <strong>Admin → Plugin packages → Browse</strong>:</p>
         <pre class="mono">{config}</pre>
-        <p>The key is at <a class="ocean-source" href="/keys/octipus.pub">/keys/octipus.pub</a>; check it against <a class="ocean-source" href={`${MARKET_REPO}/tree/main/keys`}>keys/ in the repository</a>.</p>
+        <p>The signing keys are in <a class="ocean-source" href="/keys.json">/keys.json</a>, signed by the marketplace's offline root key (<a class="ocean-source" href="/keys.json.sig">/keys.json.sig</a>); check the root key against <a class="ocean-source" href={`${MARKET_REPO}/tree/main/keys`}>keys/ in the repository</a> and Octipus's built-in entry.</p>
       </div>
 
       <div class="panel glass asks" id="asks">

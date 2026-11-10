@@ -11,3 +11,5 @@ build-record.json
 *.key
 *.key.*
 *.pem
+release/
+release-keys/
