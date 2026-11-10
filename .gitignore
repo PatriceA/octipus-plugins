@@ -13,3 +13,4 @@ build-record.json
 *.pem
 release/
 release-keys/
+.astro/
