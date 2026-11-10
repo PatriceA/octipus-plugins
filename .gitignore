@@ -1,0 +1,13 @@
+node_modules/
+dist/
+site/.astro/
+check-summary.md
+check-result.json
+build-record.json
+*.tar.gz
+
+# Private keys never enter this repository: they live on the publishing
+# machine (the active key, encrypted) and offline (the backup key).
+*.key
+*.key.*
+*.pem

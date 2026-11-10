@@ -1,0 +1,5 @@
+# The Octipus commit the scripts and CI run the `octi plugin` CLI from
+# (PatriceA/octipus). The first line that is not a comment is the ref.
+# TODO: pin this to the merge commit of the marketplace CLI (hash, pack,
+# permissions, verify, verify-index, --passphrase-file) once it is on main.
+main

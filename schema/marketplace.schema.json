@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plugins.octipus.cc/schema/marketplace.schema.json",
+  "title": "Octipus marketplace listing",
+  "description": "plugins/<name>/marketplace.json: how a plugin is listed on plugins.octipus.cc. It is not part of the package (pack leaves it out, and it never changes the content hash), so it can change without a new version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "summary", "category", "license", "author"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "title": {
+      "description": "The name shown on the listing.",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 60,
+      "pattern": "\\S"
+    },
+    "summary": {
+      "description": "One line: what it does.",
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 140,
+      "pattern": "^[^\\n\\r]*$"
+    },
+    "category": {
+      "description": "One of a fixed list, so the home page can group plugins.",
+      "type": "string",
+      "enum": [
+        "productivity",
+        "knowledge",
+        "writing",
+        "research",
+        "communication",
+        "developer",
+        "data",
+        "finance",
+        "business",
+        "media",
+        "integrations",
+        "utilities"
+      ]
+    },
+    "tags": {
+      "description": "Search words, lower case.",
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,23}$" }
+    },
+    "icon": {
+      "description": "A square PNG, WebP or JPEG in the plugin directory, e.g. \"icon.png\".",
+      "$ref": "#/$defs/image"
+    },
+    "screenshots": {
+      "description": "Images in the plugin directory, shown on the plugin page and served from plugins.octipus.cc.",
+      "type": "array",
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/image" }
+    },
+    "homepage": {
+      "description": "An https URL about the plugin (its source, its documentation).",
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^https://[^\\s/$.?#][^\\s]*$"
+    },
+    "license": {
+      "description": "An SPDX licence identifier or expression, e.g. \"MIT\" or \"Apache-2.0 OR MIT\".",
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^\\(?[A-Za-z0-9][A-Za-z0-9.+-]*\\)?( (AND|OR|WITH) \\(?[A-Za-z0-9][A-Za-z0-9.+-]*\\)?)*$"
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "url": { "type": "string", "maxLength": 300, "pattern": "^https://[^\\s/$.?#][^\\s]*$" }
+      }
+    },
+    "minOctipus": {
+      "description": "The oldest Octipus version the plugin works with.",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "deprecated": {
+      "description": "Why the plugin should no longer be installed, or null.",
+      "type": ["string", "null"],
+      "maxLength": 300
+    }
+  },
+  "$defs": {
+    "image": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9._/-]+\\.(png|webp|jpg|jpeg)$"
+    }
+  }
+}

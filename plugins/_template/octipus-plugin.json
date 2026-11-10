@@ -1,0 +1,12 @@
+{
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "apiVersion": "1.0.0",
+  "title": "My plugin",
+  "description": "Says hello: a starting point for an Octipus plugin package.",
+  "publisher": "Your name",
+  "server": { "command": "node", "args": ["server.mjs"] },
+  "tools": {
+    "hello": { "effect": "read", "description": "Greet someone by name" }
+  }
+}

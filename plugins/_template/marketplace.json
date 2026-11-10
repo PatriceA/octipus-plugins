@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schema/marketplace.schema.json",
+  "title": "My plugin",
+  "summary": "Says hello. Replace this with one line on what your plugin does.",
+  "category": "utilities",
+  "tags": ["example"],
+  "license": "MIT",
+  "author": { "name": "Your name", "url": "https://example.com" },
+  "minOctipus": "0.7.0"
+}

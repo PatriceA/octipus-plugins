@@ -1,0 +1,23 @@
+{
+  "name": "octipus-plugins",
+  "private": true,
+  "type": "module",
+  "description": "The Octipus plugin marketplace: reviewed plugin packages, the CI checks, the publish command and the plugins.octipus.cc site.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.10"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "publish": "node scripts/publish.mjs",
+    "build:site": "astro build --root site",
+    "dev:site": "astro dev --root site",
+    "test": "node --test --test-concurrency=1 \"scripts/**/*.test.mjs\" \"site/**/*.test.mjs\" \"tests/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "ajv": "8.17.1",
+    "astro": "7.4.2",
+    "marked": "18.1.1",
+    "sanitize-html": "2.18.1"
+  }
+}
