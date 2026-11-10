@@ -16,7 +16,7 @@ import { readFileUnder } from './lib/safe-fs.mjs';
 import { fence, renderSummary, SUMMARY_MARKER } from './lib/summary.mjs';
 
 export const LABELS = {
-  security: { name: 'needs-security-review', color: 'efa99b', description: 'A plugin asks for something new, wider or changed: a maintainer reviews it before merging' },
+  security: { name: 'needs-security-review', color: 'efa99b', description: 'A plugin asks for something new or wider: a maintainer reviews it before merging' },
   maintainer: { name: 'needs-maintainer-review', color: 'd93f0b', description: 'Changes outside plugins/<name>/, or a check that could not be read: a maintainer reviews it before merging' },
 };
 

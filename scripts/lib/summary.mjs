@@ -69,7 +69,7 @@ export function renderSummary(result, run = {}) {
       failed.length ? `**${failed.length} of ${plugins.length} plugin(s) failed.**` : `**All ${plugins.length} plugin(s) passed the data checks.**`,
       '',
       widened.length
-        ? `**Needs security review:** ${widened.map((r) => codeSpan(r.name ?? r.dir)).join(', ')} ${widened.length === 1 ? 'asks' : 'ask'} for something new, wider or changed.`
+        ? `**Needs security review:** ${widened.map((r) => codeSpan(r.name ?? r.dir)).join(', ')} ${widened.length === 1 ? 'asks' : 'ask'} for something new or wider (a changed command, schedule, prompt, context or page counts when it asks for more).`
         : 'Nothing asks for more than the published version.',
       '',
     );
