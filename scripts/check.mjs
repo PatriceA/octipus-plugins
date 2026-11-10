@@ -38,7 +38,7 @@ import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { validateCheckResult } from './lib/check-result.mjs';
 import { assertTreeClean, changedPaths, checkCommit, exportTree, git, lsTree, showFile } from './lib/git.mjs';
-import { checkListing, LISTING_FILE, listingImages, unknownLicenses } from './lib/listing.mjs';
+import { checkListing, LISTING_FILE, listingImages, listingWarnings, unknownLicenses } from './lib/listing.mjs';
 import { cli, octipusRef, REPO_ROOT } from './lib/octi.mjs';
 import { diffPermissions, stableStringify } from './lib/permissions.mjs';
 import { nameProblem, publishedDiff, revokedDiff, validatePublished, validateRevoked, versionProblem } from './lib/records.mjs';
@@ -130,6 +130,7 @@ export async function checkPlugin(dir, dirName, { published = {} } = {}) {
       const problems = checkListing(listing);
       for (const p of problems) r.errors.push(`${LISTING_FILE}: ${p}`);
       if (!problems.length) {
+        for (const w of listingWarnings(listing)) r.warnings.push(`${LISTING_FILE}: ${w}`);
         for (const id of unknownLicenses(listing.license)) r.warnings.push(`licence ${id} is not on the list of known open source licences: the reviewer checks it`);
         for (const [i, img] of listingImages(listing).entries()) {
           const limit = i === 0 && listing.icon ? LIMITS.iconBytes : LIMITS.screenshotBytes;

@@ -84,6 +84,7 @@ function cspHeaders() {
           '/index.json.sig', ...json,
           '/keys.json', ...json,
           '/keys.json.sig', ...json,
+          '/stats.json', ...json,
           '',
         ].join('\n');
         writeFileSync(join(out, '_headers'), headers);

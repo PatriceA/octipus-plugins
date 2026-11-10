@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateStats } from '../../../scripts/lib/stats.mjs';
 
 /** The repository root (set by astro.config.mjs; this file's location when run unbundled). */
 export function repoRoot() {
@@ -42,6 +43,22 @@ export function loadIndex(env = process.env) {
   if (!file) return { schema: 2, packages: [], revoked: [] };
   if (!existsSync(file)) throw new Error(`MARKETPLACE_INDEX=${file}: no such file`);
   return JSON.parse(readFileSync(file, 'utf8'));
+}
+
+/**
+ * Download counts (stats.json, unsigned, display only) from
+ * $MARKETPLACE_STATS: name → count. Without it, none are shown; a file that
+ * is given but does not fit stops the build.
+ */
+export function loadStats(env = process.env) {
+  const file = env.MARKETPLACE_STATS;
+  if (!file) return {};
+  return validateStats(JSON.parse(readFileSync(file, 'utf8'))).downloads;
+}
+
+/** A count for a card or a page: "1,234 downloads". */
+export function downloadsText(n) {
+  return typeof n === 'number' ? `${n.toLocaleString('en-US')} download${n === 1 ? '' : 's'}` : null;
 }
 
 /** A URL on this site as a path ("https://plugins.octipus.cc/x/icon.png" → "/x/icon.png"). */

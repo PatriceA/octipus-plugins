@@ -6,7 +6,7 @@
 //                             [--build-record <file> | --skip-ci-compare] [--confirm-bypass "<phrase>"]
 //                             [--resign-to <keyId>] [--out release/]
 //   node scripts/sign.mjs --plan release/release-plan.json --key <signing.key> --root-pub <root.pub> …
-//   npm run publish -- finish --plan release/release-plan.json [--out dist/]
+//   npm run publish -- finish --plan release/release-plan.json [--stats stats.json] [--out dist/]
 //
 // build (no key; it runs Astro-free repository code and the pinned CLI):
 //  1. The worktree is clean, on main, equal to origin/main; the commit's
@@ -47,6 +47,7 @@ import { anchorProblems, nameProblem, validatePublished, versionProblem } from '
 import { isSkipped, LIMITS, MANIFEST, overwriteRegular, parseJson, pluginDirs, PLUGINS_DIR, readPublished, readRevoked, serializePublished, withPublished } from './lib/repo.mjs';
 import { readFileUnder, readRegularFile, SafeDir } from './lib/safe-fs.mjs';
 import { compareSemver, maxSemver } from './lib/semver.mjs';
+import { serializeStats, validateStats } from './lib/stats.mjs';
 import { TEXT_LIMITS } from './lib/text.mjs';
 import { checkPlan, LIVE_INDEX, LIVE_KEYS, readSource, sha256Hex, verifyKeysJson } from './sign.mjs';
 import { repoRootPubs } from './keys.mjs';
@@ -412,11 +413,13 @@ export async function publishBuild(opts) {
 }
 
 /** Build the site from `indexFile` into `siteOut` (Astro, static). */
-function buildSite(indexFile, siteOut, log) {
+function buildSite(indexFile, siteOut, log, statsFile) {
   const astro = join(REPO_ROOT, 'node_modules', 'astro', 'bin', 'astro.mjs');
   if (!existsSync(astro)) stop('Astro is not installed: run npm ci --ignore-scripts in octipus-plugins first');
   log('building the site');
   const env = { ...process.env, MARKETPLACE_INDEX: indexFile, SITE_OUT: siteOut, ASTRO_TELEMETRY_DISABLED: '1' };
+  delete env.MARKETPLACE_STATS;
+  if (statsFile) env.MARKETPLACE_STATS = statsFile;
   delete env.NODE_OPTIONS;
   const r = spawnSync(process.execPath, [astro, 'build', '--root', join(REPO_ROOT, 'site'), '--silent'], { cwd: REPO_ROOT, encoding: 'utf8', env });
   if (r.status !== 0) stop(`the site build failed:\n${(r.stdout + r.stderr).trim().split('\n').slice(-30).join('\n')}`);
@@ -425,7 +428,7 @@ function buildSite(indexFile, siteOut, log) {
 const SIGNED_RECORD = 'keyId,kind,name,sha256,signatureFile,version';
 
 export async function publishFinish(opts) {
-  const { root = REPO_ROOT, planFile, out = join(root, 'dist'), rootPubs = repoRootPubs(root), fetch = true, now = new Date(), log = (m) => process.stderr.write(`${m}\n`) } = opts;
+  const { root = REPO_ROOT, planFile, out = join(root, 'dist'), rootPubs = repoRootPubs(root), stats, fetch = true, now = new Date(), log = (m) => process.stderr.write(`${m}\n`) } = opts;
   if (!planFile) stop('--plan <release/release-plan.json> is required');
   const commit = checkWorktree(root, { fetch });
   const planPath = resolve(planFile);
@@ -493,8 +496,15 @@ export async function publishFinish(opts) {
     for (const k of keys.endorsed) dist.write(`keys/${k.keyId.slice('ed25519:'.length, 'ed25519:'.length + 16)}.pub`, k.publicKey);
 
     // The site, built into a directory of its own and copied (regular files only).
+    // stats.json (unsigned, display only), validated and written anew.
+    let statsFile = null;
+    if (stats) {
+      const text = serializeStats(validateStats(parseJson(readRegularFile(resolve(stats), { encoding: 'utf8', maxBytes: 4 * 1024 * 1024 }), 'stats.json')));
+      statsFile = work.write('stats.json', text);
+      dist.write('stats.json', text);
+    }
     const siteOut = work.path('site');
-    buildSite(vf, siteOut, log);
+    buildSite(vf, siteOut, log, statsFile);
     dist.copyTree(siteOut, '', '');
     // The listing images, from the committed tree, at paths checkListing accepted.
     const { sources } = readSources(src);
@@ -511,7 +521,7 @@ export async function publishFinish(opts) {
       '',
       'Next:',
       `  1. Deploy ${dist.root}/ to plugins.octipus.cc as it is, e.g.`,
-      `       rsync -a --delete ${dist.root}/ <server>:/var/www/plugins.octipus.cc/`,
+      `       rsync -a --delete --filter 'P stats.json' ${dist.root}/ <server>:/var/www/plugins.octipus.cc/`,
       '     (serve _headers as the site\'s headers, or the nginx config in README.md).',
       names.length ? `  2. Commit and push published.json: git commit -m "Publish ${names.join(', ')}" published.json` : '  2. published.json is unchanged: nothing to commit.',
     ].join('\n'));
@@ -529,7 +539,7 @@ async function main() {
     options: {
       out: { type: 'string' }, plan: { type: 'string' },
       'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'keys-from': { type: 'string' }, 'previous-keys-from': { type: 'string' }, 'root-pub': { type: 'string', multiple: true },
-      'build-record': { type: 'string' }, 'skip-ci-compare': { type: 'boolean' }, 'confirm-bypass': { type: 'string' }, 'resign-to': { type: 'string' },
+      'build-record': { type: 'string' }, stats: { type: 'string' }, 'skip-ci-compare': { type: 'boolean' }, 'confirm-bypass': { type: 'string' }, 'resign-to': { type: 'string' },
       'github-repo': { type: 'string' }, 'no-fetch': { type: 'boolean' }, 'base-url': { type: 'string' },
     },
   });
@@ -553,7 +563,7 @@ async function main() {
       baseUrl: values['base-url'] ?? BASE_URL,
     });
   } else if (cmd === 'finish') {
-    await publishFinish({ root, planFile: values.plan, out: values.out ? resolve(values.out) : undefined, ...(rootPubs ? { rootPubs } : {}), fetch: values['no-fetch'] !== true });
+    await publishFinish({ root, planFile: values.plan, stats: values.stats, out: values.out ? resolve(values.out) : undefined, ...(rootPubs ? { rootPubs } : {}), fetch: values['no-fetch'] !== true });
   } else {
     stop('npm run publish -- build … | finish --plan release/release-plan.json (signing is node scripts/sign.mjs)');
   }

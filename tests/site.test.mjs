@@ -57,13 +57,17 @@ test('with fixture data', () => {
   });
   const indexFile = join(tmp, 'index.json');
   writeFileSync(indexFile, serializeIndex(index));
-  buildSite(out, indexFile);
+  const statsFile = join(tmp, 'stats.json');
+  writeFileSync(statsFile, JSON.stringify({ generatedAt: '2026-11-10T00:00:00Z', downloads: { reader: 1234 } }));
+  buildSite(out, indexFile, statsFile);
   const home = readFileSync(join(out, 'index.html'), 'utf8');
   assert.doesNotMatch(home, /No plugins yet/);
   assert.match(home, /href="\/reader\/"/);
   assert.match(home, /data-search="reader \(test fixture\)/);
+  assert.match(home, /<span data-downloads>1,234 downloads<\/span>/);
   const page = readFileSync(join(out, 'reader', 'index.html'), 'utf8');
   assert.match(page, /Reviewed and signed by Octipus/);
+  assert.match(page, /1,234 downloads/);
   assert.match(page, /ed25519:efef/);
   assert.match(page, /What it asks for/);
   assert.match(page, /host API: model:complete, notes:write, tasks:write, web:read/);
@@ -120,4 +124,10 @@ test('H3: the page audit refuses any script, handler or javascript: URL the allo
   assert.ok(auditPage('<p style="color:red">x</p>', ok).some((p) => /style attribute/.test(p)));
   assert.ok(auditPage('<iframe src="/"></iframe>', ok).some((p) => /<iframe>/.test(p)));
   assert.ok(auditPage('<script>', ok).some((p) => /without/.test(p)));
+});
+
+test('an invalid stats.json stops the site build (it is unsigned: nothing in it is taken as it is)', () => {
+  const statsFile = join(tmp, 'bad-stats.json');
+  writeFileSync(statsFile, JSON.stringify({ generatedAt: '2026-11-10T00:00:00Z', downloads: { '<script>': 1 } }));
+  assert.throws(() => buildSite(join(tmp, 'bad'), join(tmp, 'index.json'), statsFile), /not a plugin name and a count/);
 });

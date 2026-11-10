@@ -18,7 +18,8 @@
 //     "revokedKeys": [{ "keyId", "reason" }] }
 //
 // and signed over `octipus-marketplace-keys/v1\nsha256:<hex of its exact
-// bytes>` into keys.json.sig (the canonical signature file form). Its
+// bytes>` into keys.json.sig (the canonical signature file form) by the
+// pinned Octipus CLI's `octi plugin sign-keys`. Its
 // version only goes up and its revocations only grow: both are checked
 // against the previous keys.json (the live one), which must verify with a
 // root key first. Like sign.mjs it imports Node's built-ins and sign.mjs only.
@@ -77,33 +78,33 @@ export function buildKeysDoc({ repo = REPO, previous = null, now = new Date() } 
 export const serializeKeys = (doc) => `${JSON.stringify(doc, null, 2)}\n`;
 
 /**
- * Build keys.json into the new directory `outDir` and sign it with the root
- * key through the pinned CLI; verify the result with `roots`.
+ * Write `doc` as keys.json into the new directory `outDir` and sign it with
+ * the root key through the pinned CLI (`octi plugin sign-keys`); verify the
+ * result with `roots`. There is no other signer: no key is ever read here.
  */
-export async function signKeys({ repo = REPO, key, passphrase, previous = null, outDir, roots, env = process.env, now = new Date() }) {
+export async function signKeysDoc({ repo = REPO, refRepo = repo, doc, key, passphrase, outDir, roots, env = process.env, now = new Date() }) {
   if (!key) stop('--key <root.key> is required');
   if (!roots?.length) stop('no root public key (keys/root/*.pub, or --root-pub)');
   const keyPath = realpathSync(resolve(key));
   if (keyPath.startsWith(`${realpathSync(repo)}/`)) stop('--key is inside the repository');
-  const doc = buildKeysDoc({ repo, previous, now });
+  checkKeysDoc(doc);
+  const cli = pinnedCli({ repo, refRepo, env });
   mkdirSync(outDir); // a new directory, never an old one
   const file = join(outDir, 'keys.json');
   writeNew(file, serializeKeys(doc));
-  const cli = pinnedCli({ repo, env });
-  // TODO(octipus): `octi plugin sign-keys <keys.json> --key <root.key>
-  // [--passphrase-file <path|->] [--json]` does not exist in the pinned CLI
-  // yet. Until it does, this stops here and nothing is signed (there is no
-  // fallback signer next to the root key). It must write <keys.json>.sig,
-  // the canonical signature file, over
-  // `octipus-marketplace-keys/v1\nsha256:<hex of the exact bytes>`, and print
-  // {"sigFile","sha256","keyId"} with --json, as sign-index does.
   try {
     await cli.run('sign-keys', [file, '--key', keyPath, '--passphrase-file', '-'], { input: passphrase });
   } catch (err) {
-    stop(`the pinned Octipus CLI cannot sign keys.json yet (octi plugin sign-keys is missing or failed): ${err.message}`);
+    stop(`the pinned Octipus CLI did not sign keys.json (octi plugin sign-keys needs Octipus with the marketplace keys, after 326b9469): ${err.message}`);
   }
   const v = verifyKeysJson(readRegular(file), readRegular(`${file}.sig`, 4096).toString('utf8'), roots, { now });
+  if (stable(v.doc) !== stable(doc)) stop('the signed keys.json is not the one built');
   return { file, doc, rootKeyId: v.rootKeyId };
+}
+
+/** Build keys.json from keys/ after `previous`, and sign it (signKeysDoc). */
+export async function signKeys({ repo = REPO, previous = null, now = new Date(), ...rest }) {
+  return signKeysDoc({ repo, doc: buildKeysDoc({ repo, previous, now }), now, ...rest });
 }
 
 async function previousDoc(values, roots) {

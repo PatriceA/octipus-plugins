@@ -206,9 +206,9 @@ const gitIn = (dir, args) => execFileSync('git', ['-C', dir, ...args], { encodin
  * as $OCTIPUS/node_modules/.bin/tsx. $OCTI_CLI is refused. Returns
  * `{ dir, ref, run(cmd, args, { input, okCodes }) → { code, stdout, stderr } }`.
  */
-export function pinnedCli({ repo = REPO, env = process.env } = {}) {
+export function pinnedCli({ repo = REPO, refRepo = repo, env = process.env } = {}) {
   if (env.OCTI_CLI !== undefined) stop('OCTI_CLI is set: the key session runs only the pinned Octipus CLI. Unset it.');
-  const ref = readOctipusRef(repo);
+  const ref = readOctipusRef(refRepo);
   const dir = resolve(env.OCTIPUS || join(repo, '..', 'octipus'));
   let head;
   try { head = gitIn(dir, ['rev-parse', 'HEAD']); } catch { stop(`${dir} is not a git checkout of PatriceA/octipus (set OCTIPUS)`); }

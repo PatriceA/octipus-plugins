@@ -3,14 +3,13 @@
 // pinned CLI), keys/ laid out as in the real repository, the reader fixture,
 // a keys.json signed by the root key, and a fake `gh` that serves CI's build
 // record.
-import './octipus.mjs';
-import { createPrivateKey, sign as edSign } from 'node:crypto';
+import { pinnedOctipus, signKeysRef } from './octipus.mjs';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cli, REPO_ROOT } from '../scripts/lib/octi.mjs';
-import { buildKeysDoc, serializeKeys } from '../scripts/keys.mjs';
-import { fingerprint, keysMessage, sha256Hex } from '../scripts/sign.mjs';
+import { buildKeysDoc, signKeysDoc } from '../scripts/keys.mjs';
+import { sha256Hex } from '../scripts/sign.mjs';
 
 export const PASS = 'correct horse battery staple\n';
 
@@ -42,21 +41,26 @@ export async function makeMarket(tmp) {
   const commitAll = (msg) => { g('add', '-A'); g('commit', '-q', '-m', msg); g('push', '-q', 'origin', 'main'); return g('rev-parse', 'HEAD'); };
   commitAll('A marketplace with the reader fixture');
 
-  // keys.json, signed by the root key. TEST ONLY: signed here with
-  // node:crypto because the pinned CLI has no `octi plugin sign-keys` yet;
-  // scripts/keys.mjs itself only ever signs through the CLI.
+  // keys.json, signed by the root key through `octi plugin sign-keys` of a
+  // CLI that has it (tests/octipus.mjs: OCTIPUS_REF once it does, until then
+  // the Octipus commit that adds it, read from a directory of its own).
   const keysDir = join(tmp, 'live');
   mkdirSync(keysDir, { recursive: true });
-  const keysFile = join(keysDir, 'keys.json');
-  const writeKeys = (doc, file = keysFile) => {
-    const bytes = Buffer.from(serializeKeys(doc));
-    writeFileSync(file, bytes);
-    const key = createPrivateKey({ key: readFileSync(join(secrets, 'root.key'), 'utf8'), passphrase: PASS.trimEnd() });
-    const sig = { alg: 'ed25519', keyId: fingerprint(readFileSync(join(secrets, 'root.pub'), 'utf8')).keyId, signature: edSign(null, keysMessage(bytes), key).toString('base64') };
-    writeFileSync(`${file}.sig`, `${JSON.stringify(sig, null, 2)}\n`);
+  const keysRef = signKeysRef();
+  const keysRefRepo = join(tmp, 'sign-keys-ref');
+  mkdirSync(keysRefRepo);
+  writeFileSync(join(keysRefRepo, 'OCTIPUS_REF'), `${keysRef}\n`);
+  const keysEnv = { ...process.env, OCTIPUS: pinnedOctipus(keysRef) };
+  let signed = 0;
+  /** Sign `doc` as keys.json; returns the file (copied to `file` when given). */
+  const writeKeys = async (doc, file) => {
+    const r = await signKeysDoc({ repo, refRepo: keysRefRepo, env: keysEnv, doc, key: join(secrets, 'root.key'), passphrase: PASS, outDir: join(keysDir, `signed-${signed += 1}`), roots: [readFileSync(join(secrets, 'root.pub'), 'utf8')] });
+    if (!file) return r.file;
+    cpSync(r.file, file);
+    cpSync(`${r.file}.sig`, `${file}.sig`);
     return file;
   };
-  writeKeys(buildKeysDoc({ repo }));
+  const keysFile = await writeKeys(buildKeysDoc({ repo }), join(keysDir, 'keys.json'));
 
   // A fake gh: `run list` prints the runs, `run download` writes the record.
   const ghDir = join(tmp, 'gh');

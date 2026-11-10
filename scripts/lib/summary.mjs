@@ -17,9 +17,9 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}]/gu;
 /** Control, format (bidi, zero-width), private-use characters replaced by U+FFFD; tabs kept as spaces. */
 function clean(s, { keepNewlines = false } = {}) {
   let t = String(s).replaceAll('\t', '  ').replaceAll('\r\n', '\n');
-  if (keepNewlines) return t.split('\n').map((l) => l.replace(UNSAFE, '�')).join('\n');
+  if (keepNewlines) return t.split('\n').map((l) => l.replace(UNSAFE, '\uFFFD')).join('\n');
   t = t.replaceAll('\n', ' ');
-  return t.replace(UNSAFE, '�');
+  return t.replace(UNSAFE, '\uFFFD');
 }
 
 const longestRun = (s, ch) => Math.max(0, ...[...s.matchAll(new RegExp(`${ch === '`' ? '`' : '~'}+`, 'g'))].map((m) => m[0].length));

@@ -4,7 +4,7 @@
 // install it.
 import OceanLayout from '../../design/OceanLayout.astro';
 import { MARKET_REPO } from '../../design/links.mjs';
-import { CATEGORY_LABELS, loadIndex, pluginsFrom, readmeImages, sitePath } from '../../lib/data.mjs';
+import { CATEGORY_LABELS, downloadsText, loadIndex, loadStats, pluginsFrom, readmeImages, sitePath } from '../../lib/data.mjs';
 import { renderMarkdown } from '../../lib/markdown.mjs';
 import { asksFor } from '../../../../scripts/lib/asks-for.mjs';
 import '../../styles/market.css';
@@ -15,6 +15,7 @@ export function getStaticPaths() {
 
 const { plugin } = Astro.props;
 const l = plugin.latest;
+const downloads = downloadsText(loadStats()[plugin.name]);
 const images = readmeImages(plugin);
 const source = `${MARKET_REPO}/blob/main/plugins/${plugin.name}/`;
 const readmeHtml = renderMarkdown(plugin.readme, { images, linkBase: source });
@@ -39,6 +40,7 @@ const config = JSON.stringify({ plugins: {
       <p class="summary">{l.summary || l.description}</p>
       <ul class="facts">
         <li>Version <strong>{l.version}</strong></li>
+        {downloads && <li data-downloads><strong>{downloads}</strong></li>}
         {l.author && <li>By <strong>{l.author.url ? <a href={l.author.url} rel="nofollow noopener noreferrer">{l.author.name}</a> : l.author.name}</strong></li>}
         {l.license && <li>Licence <strong>{l.license}</strong></li>}
         {l.homepage && <li><a class="ocean-source" href={l.homepage} rel="nofollow noopener noreferrer">Homepage ↗</a></li>}

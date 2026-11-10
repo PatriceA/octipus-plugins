@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { REPO_ROOT } from './octi.mjs';
 import { isSafeRelPath } from './safe-fs.mjs';
-import { displayTextProblem } from './text.mjs';
+import { displayTextProblem, displayTextWarning } from './text.mjs';
 
 export const LISTING_FILE = 'marketplace.json';
 
@@ -64,4 +64,14 @@ export function unknownLicenses(expr) {
 /** The image files a listing names (icon first). */
 export function listingImages(listing) {
   return [...(listing?.icon ? [listing.icon] : []), ...(listing?.screenshots ?? [])];
+}
+
+/** Guidance for the reviewer about a listing that passed checkListing (warnings, not errors). */
+export function listingWarnings(listing) {
+  const out = [];
+  for (const [where, text] of [['title', listing?.title], ['summary', listing?.summary], ['author.name', listing?.author?.name]]) {
+    const w = displayTextWarning(text);
+    if (w) out.push(`${where}: ${w}`);
+  }
+  return out;
 }

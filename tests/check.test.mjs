@@ -77,7 +77,7 @@ test('C1, H1: a symlink anywhere in the pull request fails it', async () => {
 test('H2, L5: listing paths, invisible characters and size caps', async () => {
   const r = await check(listing((l) => ({ ...l, screenshots: ['../_headers'] })));
   assert.match(r.plugins[0].errors.join('\n'), /marketplace\.json/);
-  const r2 = await check(listing((l) => ({ ...l, title: 'Reader‮' })));
+  const r2 = await check(listing((l) => ({ ...l, title: 'Reader\u202E' })));
   assert.match(r2.plugins[0].errors.join('\n'), /bidi/);
   const r3 = await check(edit('plugins/reader/README.md', (t) => t + 'x'.repeat(70 * 1024)));
   assert.match(r3.plugins[0].errors.join('\n'), /README\.md is \d+ bytes; at most 65536/);

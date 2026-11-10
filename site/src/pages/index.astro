@@ -3,11 +3,12 @@
 // launches empty, so the empty state is the first thing anyone sees.
 import OceanLayout from '../design/OceanLayout.astro';
 import { CONTRIBUTING } from '../design/links.mjs';
-import { CATEGORIES, CATEGORY_LABELS, loadIndex, pluginsFrom } from '../lib/data.mjs';
+import { CATEGORIES, CATEGORY_LABELS, downloadsText, loadIndex, loadStats, pluginsFrom } from '../lib/data.mjs';
 import { INLINE_SCRIPTS } from '../lib/inline-scripts.mjs';
 import '../styles/market.css';
 
 const plugins = pluginsFrom(loadIndex());
+const downloads = loadStats();
 const used = new Set(plugins.map((p) => p.latest.category));
 const categories = CATEGORIES.filter((c) => used.has(c.id));
 const searchText = (p) => [p.latest.title, p.latest.summary, ...(p.latest.tags ?? []), p.name].join(' ').toLowerCase();
@@ -61,6 +62,7 @@ const searchText = (p) => [p.latest.title, p.latest.summary, ...(p.latest.tags ?
                 <span class="meta">
                   <span>{CATEGORY_LABELS[p.latest.category] ?? p.latest.category}</span>
                   <span>v{p.latest.version}</span>
+                  {downloadsText(downloads[p.name]) && <span data-downloads>{downloadsText(downloads[p.name])}</span>}
                   {(p.latest.tags ?? []).slice(0, 4).map((t) => <span class="tag">#{t}</span>)}
                 </span>
               </a>
