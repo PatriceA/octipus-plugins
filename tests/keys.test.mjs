@@ -6,8 +6,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { buildKeysDoc, signKeys } from '../scripts/keys.mjs';
-import { fingerprint, verifyKeysJson } from '../scripts/sign.mjs';
+import { buildKeysDoc, expiresDays, KEYS_EXPIRES_DAYS, signKeys } from '../scripts/keys.mjs';
+import { checkKeysDoc, fingerprint, verifyKeysJson } from '../scripts/sign.mjs';
 import { makeMarket, PASS } from './market.mjs';
 
 const tmp = mkdtempSync(join(tmpdir(), 'octipus-keys-test-'));
@@ -29,6 +29,27 @@ test('keys.json, signed by octi plugin sign-keys, verifies with the root key onl
   doc.signingKeys[0].notAfter = '2020-01-01T00:00:00Z';
   await m.writeKeys(doc, join(tmp, 'expired.json'));
   assert.deepEqual(verifyKeysJson(readFileSync(join(tmp, 'expired.json')), readFileSync(join(tmp, 'expired.json.sig'), 'utf8'), [root()]).endorsed, []);
+});
+
+test('keys.json expires 180 days after it is made (or never, with --no-expires); an expired one is refused', async () => {
+  const now = new Date('2026-11-10T12:00:00Z');
+  const doc = buildKeysDoc({ repo: m.repo, now });
+  assert.deepEqual(Object.keys(doc), ['schema', 'version', 'generatedAt', 'expires', 'signingKeys', 'revokedKeys']);
+  assert.equal(doc.expires, '2027-05-09T12:00:00Z');
+  assert.equal(buildKeysDoc({ repo: m.repo, now, expiresInDays: 7 }).expires, '2026-11-17T12:00:00Z');
+  assert.ok(!('expires' in buildKeysDoc({ repo: m.repo, now, expiresInDays: null })));
+  assert.equal(expiresDays(undefined, KEYS_EXPIRES_DAYS), 180);
+  assert.equal(expiresDays('30', 180), 30);
+  for (const bad of ['0', '-1', '1.5', 'x', '4000']) assert.throws(() => expiresDays(bad, 180), /--expires-days/);
+  const file = await m.writeKeys(doc, join(tmp, 'expiring.json'));
+  const bytes = readFileSync(file);
+  const sig = readFileSync(`${file}.sig`, 'utf8');
+  assert.equal(verifyKeysJson(bytes, sig, [root()], { now }).doc.expires, '2027-05-09T12:00:00Z');
+  assert.throws(() => verifyKeysJson(bytes, sig, [root()], { now: new Date('2027-05-09T12:00:00Z') }), /expired at 2027-05-09T12:00:00Z/);
+  // The previous keys.json is read whatever its age (new Date(0)), to chain the versions.
+  assert.equal(verifyKeysJson(bytes, sig, [root()], { now: new Date(0) }).doc.version, 1);
+  assert.throws(() => checkKeysDoc({ ...doc, expires: doc.generatedAt }), /after generatedAt/);
+  assert.throws(() => checkKeysDoc({ ...doc, expires: '2027-05-09' }), /expires must be an ISO time/);
 });
 
 test('versions go up, revocations are never dropped, a root key never signs packages', () => {

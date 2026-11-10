@@ -69,11 +69,18 @@ test('publishes a first version end to end: build, sign, finish', async () => {
   const tarball = join(r.out, 'dl', 'reader-1.0.0.tar.gz');
   const index = JSON.parse(readFileSync(join(r.out, 'index.json'), 'utf8'));
   assert.equal(index.schema, 2);
+  // It expires 30 days after it is made (hosts refuse it after that).
+  assert.equal(Date.parse(index.expires) - Date.parse(index.generatedAt), 30 * 86_400_000);
+  assert.ok(JSON.parse(readFileSync(join(r.out, 'keys.json'), 'utf8')).expires);
+  await assert.rejects(publishBuild(buildOpts({ noPreviousIndex: true, indexExpiresDays: 0 })), /--index-expires-days/);
   const entry = index.packages[0];
   assert.equal(entry.url, 'https://plugins.octipus.cc/dl/reader-1.0.0.tar.gz');
   assert.equal(entry.sha256, m.sha256(tarball));
   assert.equal(entry.minOctipus, '0.7.0');
   assert.match(entry.keyId, /^ed25519:[0-9a-f]{64}$/);
+  // M3: the CLI's permissions object exactly as it prints it (hosts compare it whole).
+  assert.equal(JSON.stringify(entry.permissions), JSON.stringify(await cli.permissions(join(m.repo, 'plugins', 'reader'))));
+  assert.equal(entry.permissions.ui.sha256.length, 64);
 
   // The tarball carries its signature, by the endorsed signing key.
   const unpacked = fresh('unpacked');

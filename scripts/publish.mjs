@@ -4,7 +4,7 @@
 //   npm run publish -- build  [--index-from <file|url> | --no-previous-index] [--keys-from <file|url>]
 //                             [--previous-keys-from <file|url>] [--root-pub <file>…]
 //                             [--build-record <file> | --skip-ci-compare] [--confirm-bypass "<phrase>"]
-//                             [--resign-to <keyId>] [--out release/]
+//                             [--resign-to <keyId>] [--index-expires-days <n>] [--out release/]
 //   node scripts/sign.mjs --plan release/release-plan.json --key <signing.key> --root-pub <root.pub> …
 //   npm run publish -- finish --plan release/release-plan.json [--stats stats.json] [--out dist/]
 //
@@ -29,6 +29,11 @@
 //     and recorded signature (its sha256 must be the signed index's).
 //  6. The index v2 template (each new tarball's sha256 and key id left null:
 //     they exist only once the package is signed) and release-plan.json.
+//     The index expires generatedAt + 30 days (--index-expires-days): hosts
+//     refuse an expired index and warn admins once the last one they
+//     accepted is older than 7 days, so publish again (even with nothing
+//     new) at least weekly, and always before it expires. A reminder is the
+//     key holder's to set; nothing here schedules one.
 // sign: see scripts/sign.mjs. finish (no key): verify what sign wrote, add
 // the records to published.json, and assemble dist/ with the site.
 // Nothing here pushes or uploads: you deploy dist/ and commit published.json.
@@ -57,6 +62,9 @@ const SIGNATURE_FILE = 'octipus-plugin.sig';
 const RELEASE_MARKER = '.octipus-plugins-release';
 const DIST_MARKER = '.octipus-plugins-dist';
 export const DEFAULT_GITHUB_REPO = 'PatriceA/octipus-plugins';
+/** How long a signed index is valid by default (days). */
+export const INDEX_EXPIRES_DAYS = 30;
+const DAY_MS = 86_400_000;
 
 export class PublishError extends Error {}
 const stop = (msg) => { throw new PublishError(msg); };
@@ -223,9 +231,11 @@ export async function publishBuild(opts) {
   const {
     root = REPO_ROOT, out = join(root, 'release'), indexFrom = LIVE_INDEX, keysFrom = LIVE_KEYS, previousKeysFrom, noPreviousIndex = false,
     rootPubs = repoRootPubs(root), buildRecord, skipCiCompare = false, confirmBypass, gh = 'gh', githubRepo = DEFAULT_GITHUB_REPO, resignTo = null,
-    fetch = true, baseUrl = BASE_URL, now = new Date(), log = (m) => process.stderr.write(`${m}\n`),
+    fetch = true, baseUrl = BASE_URL, now = new Date(), indexExpiresDays = INDEX_EXPIRES_DAYS, log = (m) => process.stderr.write(`${m}\n`),
   } = opts;
   const warnings = [];
+  if (!Number.isInteger(indexExpiresDays) || indexExpiresDays < 1 || indexExpiresDays > 365) stop(`--index-expires-days must be a whole number of days from 1 to 365, not ${JSON.stringify(indexExpiresDays)}`);
+  const indexExpires = iso(new Date(now.getTime() + indexExpiresDays * DAY_MS));
 
   // 0. Node and the CLI. The tarball's deflate stream comes from Node's
   // bundled zlib: the same Node as CI (.node-version) gives the same bytes.
@@ -253,7 +263,10 @@ export async function publishBuild(opts) {
     if (!rootPubs.length) stop('no root public key: keys/root/*.pub, or --root-pub');
     const keys = await loadKeys(keysFrom, rootPubs, { now });
     if (!keys.endorsed.length) stop('keys.json endorses no signing key');
-    log(`keys.json v${keys.doc.version} (root ${keys.rootKeyId}); endorsed: ${keys.endorsed.map((k) => k.keyId).join(', ')}`);
+    log(`keys.json v${keys.doc.version} (root ${keys.rootKeyId}${keys.doc.expires ? `, expires ${keys.doc.expires}` : ''}); endorsed: ${keys.endorsed.map((k) => k.keyId).join(', ')}`);
+    if (keys.doc.expires && Date.parse(keys.doc.expires) < Date.parse(indexExpires)) {
+      warnings.push(`keys.json expires at ${keys.doc.expires}, before this index (${indexExpires}): hosts refuse the marketplace from then on. Sign and deploy a new keys.json first (node scripts/keys.mjs sign).`);
+    }
     const pubFiles = keys.endorsed.map((k, i) => work.write(`endorsed-${i}.pub`, k.publicKey));
     if (resignTo && !keys.endorsed.some((k) => k.keyId === resignTo)) stop(`--resign-to ${resignTo} is not endorsed by keys.json`);
 
@@ -367,7 +380,7 @@ export async function publishBuild(opts) {
       const [name, version] = k.split('@');
       next = withPublished(next, name, version, { ...next[name][version], sha256: null, keyId: null });
     }
-    const index = buildIndex({ published: next, sources, revoked, generatedAt: iso(now), baseUrl });
+    const index = buildIndex({ published: next, sources, revoked, generatedAt: iso(now), expires: indexExpires, baseUrl });
     const template = serializeIndex(index);
     // Each filled-in entry grows by its sha256 and key id.
     if (Buffer.byteLength(template) + 200 * planned.length > LIMITS.indexBytes) stop(`index.json would be over ${LIMITS.indexBytes} bytes, more than a host reads: shorten READMEs or CHANGELOGs`);
@@ -400,6 +413,7 @@ export async function publishBuild(opts) {
       '',
       `Release plan: ${planFile}`,
       ...planned.map((p) => `  ${p.kind}: ${p.name} ${p.version}  ${p.contentHash}`),
+      `  the index expires at ${indexExpires}: publish again before then (hosts warn admins after 7 days)`,
       ...warnings.map((w) => `  warning: ${w}`),
       '',
       `Changed outside plugins/<name>/ since ${plan.lastPublishCommit ? `the last publish (${since.slice(0, 12)})` : 'the first commit'}:`,
@@ -460,6 +474,7 @@ export async function publishFinish(opts) {
     const v = await cli.verifyIndex(vf, pubs);
     if (!v.valid) stop(`signed/index.json does not verify with an endorsed key: ${v.error ?? 'invalid'}`);
     const index = parseJson(indexBytes.toString('utf8'), 'signed/index.json');
+    if (index.expires !== undefined && !(Date.parse(index.expires) > now.getTime())) stop(`signed/index.json expired at ${index.expires}: hosts would refuse it; publish again (build, sign, finish)`);
 
     // published.json with the signed records, which must equal the signed index.
     const published = readPublished(src.root);
@@ -527,6 +542,8 @@ export async function publishFinish(opts) {
       `       rsync -a --delete --filter 'P stats.json' ${dist.root}/ <server>:/var/www/plugins.octipus.cc/`,
       '     (serve _headers as the site\'s headers, or the nginx config in README.md).',
       names.length ? `  2. Commit and push published.json: git commit -m "Publish ${names.join(', ')}" published.json` : '  2. published.json is unchanged: nothing to commit.',
+      ...(index.expires ? [`  3. The index expires at ${index.expires}${keys.doc.expires ? ` and keys.json at ${keys.doc.expires}` : ''}: hosts refuse them after that, and warn`,
+        '     admins once the index they hold is 7 days old. Publish again within a week, and set yourself a reminder: nothing here does.'] : []),
     ].join('\n'));
     return { commit, outDir: dist.root, index, published: next, newVersions: signed.records.filter((r) => r.kind === 'new').map((r) => ({ name: r.name, version: r.version })) };
   } finally {
@@ -543,7 +560,7 @@ async function main() {
       out: { type: 'string' }, plan: { type: 'string' },
       'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'keys-from': { type: 'string' }, 'previous-keys-from': { type: 'string' }, 'root-pub': { type: 'string', multiple: true },
       'build-record': { type: 'string' }, stats: { type: 'string' }, 'skip-ci-compare': { type: 'boolean' }, 'confirm-bypass': { type: 'string' }, 'resign-to': { type: 'string' },
-      'github-repo': { type: 'string' }, 'no-fetch': { type: 'boolean' }, 'base-url': { type: 'string' },
+      'github-repo': { type: 'string' }, 'no-fetch': { type: 'boolean' }, 'base-url': { type: 'string' }, 'index-expires-days': { type: 'string' },
     },
   });
   const root = REPO_ROOT;
@@ -564,6 +581,7 @@ async function main() {
       githubRepo: values['github-repo'] ?? DEFAULT_GITHUB_REPO,
       fetch: values['no-fetch'] !== true,
       baseUrl: values['base-url'] ?? BASE_URL,
+      ...(values['index-expires-days'] !== undefined ? { indexExpiresDays: Number(values['index-expires-days']) } : {}),
     });
   } else if (cmd === 'finish') {
     await publishFinish({ root, planFile: values.plan, stats: values.stats, out: values.out ? resolve(values.out) : undefined, ...(rootPubs ? { rootPubs } : {}), fetch: values['no-fetch'] !== true });

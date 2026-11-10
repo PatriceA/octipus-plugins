@@ -30,9 +30,12 @@ export function assetPath(name, file) {
  *   source is gone falls back to the listing recorded when it was published)
  * @param {{ packages: object[], keys: object[] }} args.revoked
  * @param {string} args.generatedAt ISO time
+ * @param {string} [args.expires] ISO time after which hosts refuse the index
+ *   (publish sets generatedAt + 30 days); left out when not given
  * @param {string} [args.baseUrl]
  */
-export function buildIndex({ published, sources, revoked, generatedAt, baseUrl = BASE_URL }) {
+export function buildIndex({ published, sources, revoked, generatedAt, expires, baseUrl = BASE_URL }) {
+  if (expires !== undefined && !(typeof expires === 'string' && Date.parse(expires) > Date.parse(generatedAt))) throw new Error(`the index's expires (${expires}) must be a time after generatedAt (${generatedAt})`);
   const base = baseUrl.replace(/\/+$/, '');
   const packages = [];
   for (const name of Object.keys(published).sort()) {
@@ -82,6 +85,7 @@ export function buildIndex({ published, sources, revoked, generatedAt, baseUrl =
   return {
     schema: 2,
     generatedAt,
+    ...(expires !== undefined ? { expires } : {}),
     publisher: PUBLISHER,
     url: `${base}/index.json`,
     packages,

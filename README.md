@@ -264,10 +264,19 @@ Once:
 
    It verifies what sign wrote, adds the records to `published.json`, and
    assembles `dist/`: the tarballs, `index.json(.sig)`, `keys.json(.sig)`,
-   the site, the listing images.
+   the site, the listing images. It prints when the index and `keys.json`
+   expire.
 5. **Deploy** `dist/` as it is (`rsync -a --delete --filter 'P stats.json'
    dist/ <server>:/var/www/plugins.octipus.cc/`), and **commit and push
    `published.json`**.
+6. **Republish before it expires.** The index expires 30 days after
+   `build` (`--index-expires-days`), and hosts warn their admins once the
+   index they hold is a week old; `keys.json` expires 180 days after the
+   root key signs it. An expired one makes the whole marketplace
+   unavailable to hosts. Run the release again at least weekly, even with
+   nothing new, and root-sign a new `keys.json` before it expires (`build`
+   warns when it expires before the index would). Scheduling that is the
+   key holder's job: set a reminder.
 
 ### Rotating a signing key
 
@@ -366,6 +375,7 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
 {
   "schema": 2,
   "generatedAt": "2026-11-10T12:00:00Z",
+  "expires": "2026-12-10T12:00:00Z",
   "publisher": "Octipus",
   "url": "https://plugins.octipus.cc/index.json",
   "packages": [{
@@ -382,8 +392,16 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
       "host": ["notes:write", "tasks:read"], "network": [],
       "tools": [{ "name": "review", "effect": "read" }, { "name": "save", "effect": "write" }],
       "effects": { "read": 1, "write": 1, "external": 0 },
-      "contributions": { "commands": [], "schedules": [{ "id": "friday", "cron": "0 16 * * 5", "tool": "review" }], "events": [], "prompt": false, "context": false },
-      "pages": 1, "trustedInput": false, "maxProtection": 1
+      "contributions": {
+        "commands": [{ "name": "review", "tool": "review" }],
+        "schedules": [{ "id": "friday", "cron": "0 16 * * 5", "tool": "review", "input": { "days": 7 } }],
+        "events": [],
+        "prompt": { "file": "prompt.md", "sha256": "<hex of its bytes>", "roles": ["assistant"] },
+        "context": null
+      },
+      "pages": [{ "path": "review", "title": "Weekly review", "entry": "index.html" }],
+      "ui": { "dir": "ui", "sha256": "<hex>" },
+      "trustedInput": false, "maxProtection": 1
     },
     "deprecated": null
   }],
@@ -392,9 +410,22 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
 ```
 
 - `permissions` is exactly what `octi plugin permissions --json` prints for
-  the package (contributions is an object, `effects` has all three counts),
-  so a host can recompute it from the downloaded manifest and refuse an
-  install when the two differ.
+  the package, key for key and in its order: what each command, schedule
+  and event is bound to (its tool; a schedule's cron and `input` when it has
+  one), the prompt file's sha256 and roles, the context tool and roles,
+  every page's path, title and entry, and the page files' hash (`ui`, null
+  without pages); lists sorted, `roles` left out when there are none. A host
+  recomputes it from the downloaded package and refuses an install when the
+  two differ in anything; it refuses the old shape (`pages` a count,
+  `prompt` a boolean) outright. `scripts/lib/permissions.mjs` checks the
+  exact form wherever an index entry or a `published.json` record is made
+  or read.
+- `expires` is `generatedAt` + 30 days (`publish build
+  --index-expires-days <n>`). A host refuses an expired index and warns its
+  admins once the last index it accepted is more than 7 days old: the key
+  holder publishes again (build, sign, finish; a release with nothing new
+  only re-signs the index) at least weekly and always before `expires`.
+  Nothing here schedules that: set yourself a reminder.
 - Every published version is listed, newest first per plugin; `readme` and
   `changelog` ride on the newest entry of each plugin only (older entries
   have `null`), to keep the index far below a host's 1 MB cap.
