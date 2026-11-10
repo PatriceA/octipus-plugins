@@ -1,0 +1,72 @@
+name: Tests
+
+# The repository's own tests: the unit tests of scripts/lib and the site,
+# the site build, and the end-to-end publish test against the Octipus CLI at
+# OCTIPUS_REF (a throwaway encrypted key, the reader fixture, a temporary
+# marketplace repository).
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'plugins/**'
+  push:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: market
+          persist-credentials: false
+
+      - name: Read OCTIPUS_REF
+        id: ref
+        working-directory: market
+        run: |
+          ref="$(grep -v '^[[:space:]]*#' OCTIPUS_REF | grep -v '^[[:space:]]*$' | head -n 1 | tr -d '[:space:]')"
+          if ! printf '%s' "$ref" | grep -Eq '^[A-Za-z0-9._/-]{1,100}$'; then
+            echo "::error::OCTIPUS_REF does not name a ref"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: PatriceA/octipus
+          ref: ${{ steps.ref.outputs.ref }}
+          path: octipus
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: market/.node-version
+          cache: npm
+          cache-dependency-path: |
+            market/package-lock.json
+            octipus/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix market
+          npm ci --prefix octipus
+
+      - name: Test
+        working-directory: market
+        env:
+          OCTIPUS: ${{ github.workspace }}/octipus
+          ASTRO_TELEMETRY_DISABLED: '1'
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          npm test

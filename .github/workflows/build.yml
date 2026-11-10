@@ -1,0 +1,82 @@
+name: Build
+
+# On every push to main: pack each plugin version that published.json does
+# not have yet, reproducibly, and record its tarball's sha256 and content
+# hash as the artifact `build-record` (build-record.json). CI holds no key,
+# signs nothing and publishes nothing: the key holder's `npm run publish`
+# rebuilds the same tarballs from the same commit and stops on any
+# difference from this record.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and record new versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: market
+          persist-credentials: false
+
+      - name: Read OCTIPUS_REF
+        id: ref
+        working-directory: market
+        run: |
+          ref="$(grep -v '^[[:space:]]*#' OCTIPUS_REF | grep -v '^[[:space:]]*$' | head -n 1 | tr -d '[:space:]')"
+          if ! printf '%s' "$ref" | grep -Eq '^[A-Za-z0-9._/-]{1,100}$'; then
+            echo "::error::OCTIPUS_REF does not name a ref"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: PatriceA/octipus
+          ref: ${{ steps.ref.outputs.ref }}
+          path: octipus
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: market/.node-version
+          cache: npm
+          cache-dependency-path: |
+            market/package-lock.json
+            octipus/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix market
+          npm ci --prefix octipus
+
+      - name: Build
+        working-directory: market
+        env:
+          OCTIPUS: ${{ github.workspace }}/octipus
+        run: |
+          node scripts/build.mjs --out build --record build-record.json
+          cat build-record.json
+          {
+            echo '### Build record'
+            echo
+            echo '```json'
+            cat build-record.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-record
+          path: market/build-record.json
+          retention-days: 90

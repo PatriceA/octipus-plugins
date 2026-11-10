@@ -1,0 +1,159 @@
+name: Plugin checks
+
+# Checks every plugin a pull request changes (scripts/check.mjs): validate,
+# the listing schema, README and CHANGELOG, the plugin's own tests, a smoke
+# run of its server under bwrap, the size limits, no in-process runtime, the
+# version against published.json, and the permissions diff against the
+# published version. The summary is posted as one PR comment, refreshed on
+# every push, and `needs-security-review` is added when anything widens.
+#
+# Two jobs, so that the job running the pull request's code never holds a
+# write token: `check` runs it with contents: read, and `report` (which runs
+# none of it, only reads the summary artifact) comments and labels.
+# `pull_request`, never `pull_request_target`: a fork's code never runs with
+# write access. A fork's token is read-only, so `report` is skipped for forks
+# and the summary is in the `check` job's log and step summary instead.
+
+on:
+  pull_request:
+
+concurrency:
+  group: plugin-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  check:
+    name: Check changed plugins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      failed: ${{ steps.check.outputs.failed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: market
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read OCTIPUS_REF
+        id: ref
+        working-directory: market
+        run: |
+          ref="$(grep -v '^[[:space:]]*#' OCTIPUS_REF | grep -v '^[[:space:]]*$' | head -n 1 | tr -d '[:space:]')"
+          if ! printf '%s' "$ref" | grep -Eq '^[A-Za-z0-9._/-]{1,100}$'; then
+            echo "::error::OCTIPUS_REF does not name a ref"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: PatriceA/octipus
+          ref: ${{ steps.ref.outputs.ref }}
+          path: octipus
+          persist-credentials: false
+
+      # The same Node as the publishing machine (.node-version): the tarball's
+      # deflate stream comes from Node's bundled zlib.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: market/.node-version
+          cache: npm
+          cache-dependency-path: |
+            market/package-lock.json
+            octipus/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix market
+          npm ci --prefix octipus
+
+      # As Octipus's own sandbox job: Ubuntu 24.04 restricts unprivileged
+      # user namespaces through AppArmor, which a throwaway CI VM may lift.
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --version
+
+      - name: Check
+        id: check
+        working-directory: market
+        env:
+          OCTIPUS: ${{ github.workspace }}/octipus
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set +e
+          node scripts/check.mjs --base "origin/$BASE_REF" --smoke --sandbox auto
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then echo "failed=true" >> "$GITHUB_OUTPUT"; fi
+          cat check-summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -gt 1 ]; then exit "$code"; fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: check-summary
+          path: |
+            market/check-summary.md
+            market/check-result.json
+          retention-days: 7
+
+      - name: Fail on problems
+        if: steps.check.outputs.failed == 'true'
+        run: |
+          echo "::error::A plugin check failed: see the summary above."
+          exit 1
+
+  report:
+    name: Comment and label
+    needs: check
+    # Even when a check failed (the comment says what failed), never for a
+    # fork: its token cannot write, and its summary is in the check job.
+    if: always() && needs.check.result != 'skipped' && needs.check.result != 'cancelled' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # post or refresh the summary comment
+      issues: write # add or remove the needs-security-review label (labels are issue API)
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: check-summary
+          path: summary
+
+      - name: Post the summary and set the label
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('node:fs');
+            const MARKER = '<!-- octipus-plugins:check-summary -->';
+            const LABEL = 'needs-security-review';
+            const body = fs.readFileSync('summary/check-summary.md', 'utf8').slice(0, 65000);
+            const result = JSON.parse(fs.readFileSync('summary/check-result.json', 'utf8'));
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const mine = comments.find((c) => c.user?.type === 'Bot' && c.body?.startsWith(MARKER));
+            if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+            const labels = (context.payload.pull_request.labels ?? []).map((l) => l.name);
+            if (result.widened) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: LABEL });
+              } catch {
+                await github.rest.issues.createLabel({ owner, repo, name: LABEL, color: 'efa99b', description: 'A plugin asks for something new or wider: a maintainer reviews it before merging' });
+              }
+              if (!labels.includes(LABEL)) await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [LABEL] });
+            } else if (labels.includes(LABEL)) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number, name: LABEL });
+            }
