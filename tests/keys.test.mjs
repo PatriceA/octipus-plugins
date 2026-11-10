@@ -1,13 +1,11 @@
 // keys.json: built from keys/, signed by the root key, verified with the
 // root keys only; versions only go up, revocations only grow (M5).
 import './octipus.mjs';
-import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { octipusRef } from '../scripts/lib/octi.mjs';
 import { buildKeysDoc, signKeys } from '../scripts/keys.mjs';
 import { fingerprint, verifyKeysJson } from '../scripts/sign.mjs';
 import { makeMarket, PASS } from './market.mjs';
@@ -49,13 +47,11 @@ test('versions go up, revocations are never dropped, a root key never signs pack
   writeFileSync(join(m.repo, 'keys', 'endorsements.json'), JSON.stringify({ signingKeys: [{ file: 'signing/signing.pub' }], revokedKeys: [] }));
 });
 
-test('keys sign goes through the pinned CLI only: OCTIPUS_REF 326b9469 has no sign-keys, so it signs nothing', async () => {
-  const pinned = octipusRef();
-  const has = execFileSync('git', ['-C', process.env.OCTIPUS, 'show', `${pinned}:scripts/plugin.ts`], { encoding: 'utf8' }).includes("'sign-keys'");
-  const run = signKeys({ repo: m.repo, key: join(m.secrets, 'root.key'), passphrase: PASS, outDir: join(tmp, 'k1'), roots: [root()] });
-  if (has) assert.equal((await run).doc.version, 1);
-  else await assert.rejects(run, /did not sign keys\.json/);
+test('keys sign goes through the pinned CLI only, and never with a key inside the repository', async () => {
+  const r = await signKeys({ repo: m.repo, key: join(m.secrets, 'root.key'), passphrase: PASS, outDir: join(tmp, 'k1'), roots: [root()] });
+  assert.equal(r.doc.version, 1);
   await assert.rejects(signKeys({ repo: m.repo, key: join(m.repo, 'keys', 'root', 'root.pub'), passphrase: PASS, outDir: join(tmp, 'k2'), roots: [root()] }), /inside the repository/);
+  await assert.rejects(signKeys({ repo: m.repo, key: join(m.secrets, 'root.key'), passphrase: PASS, outDir: join(tmp, 'k3'), roots: [root()], env: { ...process.env, OCTI_CLI: 'octi plugin' } }), /OCTI_CLI is set/);
 });
 
 test('keys sign with a CLI that has sign-keys: the signature verifies, the wrong root does not', async () => {

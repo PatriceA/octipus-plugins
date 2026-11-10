@@ -34,9 +34,8 @@ node scripts/keys.mjs sign --key ~/offline/root.key --passphrase-file -   # → 
 node scripts/keys.mjs verify release-keys/keys.json
 ```
 
-`sign` signs only through the pinned Octipus CLI (`octi plugin sign-keys`);
-the current `OCTIPUS_REF` predates that command, so it stops until
-`OCTIPUS_REF` moves to an Octipus commit that has it. `--first` makes
+`sign` signs only through the pinned Octipus CLI (`octi plugin sign-keys`).
+`--first` makes
 version 1 when there is no live keys.json yet; `--previous <file|url>`
 replaces the live one.
 

@@ -17,22 +17,15 @@ function hasRef(dir, ref) {
 }
 
 /**
- * The Octipus commit with `octi plugin sign-keys` the tests sign keys.json
- * with while OCTIPUS_REF (326b9469) predates it: the CLI and host change on
- * PatriceA/octipus branch ccr-c3873536-snjite. Once OCTIPUS_REF is re-pinned
- * to a commit that has sign-keys, the pinned CLI itself is used.
+ * OCTIPUS_REF while it is not merged into PatriceA/octipus main yet
+ * (bf9551be, on branch ccr-c3873536-snjite: `octi plugin sign-keys` and the
+ * M3 permissions shape). scripts/sign.mjs refuses a CLI whose OCTIPUS_REF is
+ * not an ancestor of origin/main, and so it should; in the tests' own clone
+ * only, and only for this commit, the commit stands in for origin/main so
+ * the publish flow can run end to end. Once the branch is merged and
+ * OCTIPUS_REF moves to the merge, this is unused (and can go).
  */
-export const SIGN_KEYS_FALLBACK = 'e7f367d8fb0cd587062309cb4a3d95a2f9138e3f';
-
-/** A commit whose CLI has sign-keys: OCTIPUS_REF when it does, else SIGN_KEYS_FALLBACK. */
-export function signKeysRef() {
-  const src = resolve(process.env.OCTIPUS_SOURCE || join(REPO_ROOT, '..', 'octipus'));
-  const has = (ref) => { try { return g(src, 'show', `${ref}:scripts/plugin.ts`).includes("'sign-keys'"); } catch { return false; } };
-  const pinned = octipusRef();
-  if (has(pinned)) return pinned;
-  if (!has(SIGN_KEYS_FALLBACK)) throw new Error(`neither OCTIPUS_REF nor ${SIGN_KEYS_FALLBACK} (fetch PatriceA/octipus fully) has octi plugin sign-keys`);
-  return SIGN_KEYS_FALLBACK;
-}
+export const UNMERGED_REF = 'bf9551befc179a4da647e963fafa330f02c3232f';
 
 export function pinnedOctipus(ref = octipusRef()) {
   const src = resolve(process.env.OCTIPUS_SOURCE || process.env.OCTIPUS || join(REPO_ROOT, '..', 'octipus'));
@@ -46,9 +39,9 @@ export function pinnedOctipus(ref = octipusRef()) {
     // origin/main, for the ancestry check of scripts/sign.mjs.
     const main = ['refs/remotes/origin/main', 'refs/heads/main'].find((r) => hasRef(src, r));
     if (main) g(tmp, 'fetch', '--quiet', src, `+${main}:refs/remotes/origin/main`);
-    // The sign-keys fallback is not merged yet: test-only, its own commit
-    // stands in for origin/main so the ancestry check of sign.mjs passes.
-    if (ref === SIGN_KEYS_FALLBACK) {
+    // Not merged yet (UNMERGED_REF): test-only, its own commit stands in
+    // for origin/main so the ancestry check of sign.mjs passes.
+    if (ref === UNMERGED_REF) {
       let merged = false;
       try { g(tmp, 'merge-base', '--is-ancestor', ref, 'refs/remotes/origin/main'); merged = true; } catch { /* not merged yet */ }
       if (!merged) g(tmp, 'update-ref', 'refs/remotes/origin/main', ref);

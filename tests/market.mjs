@@ -3,7 +3,7 @@
 // pinned CLI), keys/ laid out as in the real repository, the reader fixture,
 // a keys.json signed by the root key, and a fake `gh` that serves CI's build
 // record.
-import { pinnedOctipus, signKeysRef } from './octipus.mjs';
+import './octipus.mjs';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,20 +41,14 @@ export async function makeMarket(tmp) {
   const commitAll = (msg) => { g('add', '-A'); g('commit', '-q', '-m', msg); g('push', '-q', 'origin', 'main'); return g('rev-parse', 'HEAD'); };
   commitAll('A marketplace with the reader fixture');
 
-  // keys.json, signed by the root key through `octi plugin sign-keys` of a
-  // CLI that has it (tests/octipus.mjs: OCTIPUS_REF once it does, until then
-  // the Octipus commit that adds it, read from a directory of its own).
+  // keys.json, signed by the root key through `octi plugin sign-keys` of
+  // the pinned CLI.
   const keysDir = join(tmp, 'live');
   mkdirSync(keysDir, { recursive: true });
-  const keysRef = signKeysRef();
-  const keysRefRepo = join(tmp, 'sign-keys-ref');
-  mkdirSync(keysRefRepo);
-  writeFileSync(join(keysRefRepo, 'OCTIPUS_REF'), `${keysRef}\n`);
-  const keysEnv = { ...process.env, OCTIPUS: pinnedOctipus(keysRef) };
   let signed = 0;
   /** Sign `doc` as keys.json; returns the file (copied to `file` when given). */
   const writeKeys = async (doc, file) => {
-    const r = await signKeysDoc({ repo, refRepo: keysRefRepo, env: keysEnv, doc, key: join(secrets, 'root.key'), passphrase: PASS, outDir: join(keysDir, `signed-${signed += 1}`), roots: [readFileSync(join(secrets, 'root.pub'), 'utf8')] });
+    const r = await signKeysDoc({ repo, doc, key: join(secrets, 'root.key'), passphrase: PASS, outDir: join(keysDir, `signed-${signed += 1}`), roots: [readFileSync(join(secrets, 'root.pub'), 'utf8')] });
     if (!file) return r.file;
     cpSync(r.file, file);
     cpSync(`${r.file}.sig`, `${file}.sig`);

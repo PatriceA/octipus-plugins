@@ -66,10 +66,14 @@ step calls `octi plugin <cmd>` from an Octipus checkout, through
 
 The commands used: `validate`, `hash`, `pack`, `permissions`, `verify`,
 `verify-index`, `sign`, `sign-index`, `keygen`, and `sign-keys` for
-keys.json (all offline, with `--json`). `sign-keys` is newer than the
-current `OCTIPUS_REF` (326b9469): until `OCTIPUS_REF` moves to an Octipus
-commit that has it, `npm run keys -- sign` stops without signing, and the
-tests sign their keys.json with Octipus e7f367d8 (`tests/octipus.mjs`).
+keys.json (all offline, with `--json`).
+
+`OCTIPUS_REF` is bf9551be, on the PatriceA/octipus branch that adds
+`sign-keys` and the permissions shape that names what every contribution
+and page is bound to. That branch is not merged into Octipus `main` yet:
+the checks, `publish build` and `keys sign` run, but `scripts/sign.mjs`
+refuses to sign a release (OCTIPUS_REF must be an ancestor of Octipus
+`origin/main`) until it is merged and `OCTIPUS_REF` moves to the merge.
 
 ## How the CI works
 
@@ -406,8 +410,9 @@ npm run dev:site
 
 The integration tests need an Octipus checkout (`$OCTIPUS` or `../octipus`)
 with `node_modules`. They never use it directly: `tests/octipus.mjs` clones
-it at `OCTIPUS_REF` (and, for `sign-keys`, at e7f367d8 while `OCTIPUS_REF`
-predates it) into a clean temporary checkout. bwrap is needed for the
+it at `OCTIPUS_REF` into a clean temporary checkout (while `OCTIPUS_REF` is
+not on Octipus `main`, that clone's `origin/main` is set to it, so the
+end-to-end test can sign). bwrap is needed for the
 sandboxed-test test. The end-to-end test makes a temporary marketplace with
 throwaway encrypted root and signing keys, publishes the reader fixture
 twice, rotates the signing key, and replays the review's attacks.
