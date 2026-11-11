@@ -48,6 +48,14 @@ screenshots you name in `marketplace.json` live in the directory too.
   when your `model:complete` prompts never carry outside data, and say why.
 - **Runtime state in `OCTIPUS_PLUGIN_DATA_DIR`**, never in the package
   directory (it is read-only under the sandbox and pinned by hash).
+- **Per-user data in the store, never in the data directory.** The data
+  directory is shared by every user of an install. What belongs to one user
+  goes in the per-user store: declare `store` (`{}` for the default 5 MB per
+  user, or `{ "quotaBytes": … }`, 1 KB to 20 MB) with the host scopes
+  `store:read` and/or `store:write` (a write scope: only `write` and
+  `external` tools get it), and ask for no more quota than you need. The
+  store needs an `OCTIPUS_REF` with it (Octipus's per-user store); until
+  then `octi plugin validate` refuses `store`.
 - **No `octipus-plugin.sig`** in the submission: the key holder signs.
 - **Regular files only.** A symbolic link or a submodule anywhere in the
   pull request fails it, as does a legacy plugin (`plugin.json` without
@@ -98,8 +106,8 @@ what changed since the published version. Anything new or wider (a host
 scope, a network host, a tool or a wider tool effect, a new or retargeted
 command, a schedule's tool or cron, a new event handler, other prompt text,
 prompt or context roles that reach more agents, another context tool, a new
-or changed page or other page files, `trustedInput`, a higher
-`maxProtection`) adds the label `needs-security-review`. A change to anything outside your
+or changed page or other page files, a new store or a larger store quota,
+`trustedInput`, a higher `maxProtection`) adds the label `needs-security-review`. A change to anything outside your
 `plugins/<name>/` directory adds `needs-maintainer-review` and needs the code
 owner's review: keep a plugin pull request to its directory.
 

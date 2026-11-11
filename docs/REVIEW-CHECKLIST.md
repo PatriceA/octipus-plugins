@@ -56,6 +56,9 @@ plugin. The code owner reviews it line by line, and:
       code downloaded and run at runtime.
 - [ ] It keeps its state in `OCTIPUS_PLUGIN_DATA_DIR`, never in its own
       directory.
+- [ ] Per-user data goes in the **store** (`store:read` / `store:write`),
+      never in `OCTIPUS_PLUGIN_DATA_DIR`, which every user of the install
+      shares: one user's data there can reach another user.
 - [ ] It does not log secrets, tokens or user content it does not need to.
 - [ ] Every tool the server offers is declared in the manifest.
 
@@ -74,6 +77,11 @@ plugin. The code owner reviews it line by line, and:
       one (its tool, cron, prompt text): read the manifest diff. A `context` tool sees every turn of every user; a prompt file
       goes into every matching agent's system prompt: read its full text.
 - [ ] **Pages:** what the page shows, and that it uses only the page bridge.
+- [ ] **Store:** the declared quota ("Keeps up to 5 MB of its own data per
+      user"; `{}` is 5 MB, at most 20 MB) fits what it keeps for each user,
+      and a larger quota in an update is explained. It is the user's data:
+      check what it stores, and that the tools that write it are `write` (a
+      `read` tool's token carries `store:read` only).
 - [ ] **`model.trustedInput`:** only if its model prompts never carry outside
       data (web pages, mail, documents, tool results), and its reason is
       honest. When in doubt, ask for it to be removed.
