@@ -9,6 +9,11 @@
 //     rendered here from it, every string escaped (M2);
 //   - the paths outside plugins/<name>/ are computed here from the API's
 //     file list, not from the artifact;
+//   - a pull request that changes anything outside plugins/<name>/ (its
+//     workflows above all: on `pull_request` the checks run the workflow and
+//     scripts of the pull request itself, so it writes its own artifact and
+//     job outcomes) gets no verdict at all: "Not checked", both labels. That
+//     decision is made from the API's file list before the artifact is read;
 //   - labels are only ever added, never removed: a maintainer removes them.
 import { ResultError, validateCheckResult } from './lib/check-result.mjs';
 import { outsidePluginPaths } from './lib/paths.mjs';
@@ -16,7 +21,7 @@ import { readFileUnder } from './lib/safe-fs.mjs';
 import { fence, renderSummary, SUMMARY_MARKER } from './lib/summary.mjs';
 
 export const LABELS = {
-  security: { name: 'needs-security-review', color: 'efa99b', description: 'A plugin asks for something new or wider: a maintainer reviews it before merging' },
+  security: { name: 'needs-security-review', color: 'efa99b', description: 'A plugin asks for something new or wider, or files outside plugins/ change: a maintainer reviews it before merging' },
   maintainer: { name: 'needs-maintainer-review', color: 'd93f0b', description: 'Changes outside plugins/<name>/, or a check that could not be read: a maintainer reviews it before merging' },
 };
 
@@ -37,7 +42,10 @@ export function readResult(dir) {
 export function buildReport({ resultText, paths, filesTruncated = false, checkJob, testJob }) {
   const labels = new Set();
   const outside = outsidePluginPaths(paths);
-  if (outside.length || filesTruncated) labels.add(LABELS.maintainer.name);
+  // Decided from the API's list alone, before the artifact is read (review
+  // finding 8): with any path outside plugins/<name>/, the checks ran code
+  // the pull request may have changed, so nothing they say is shown.
+  if (outside.length || filesTruncated) return notChecked(outside, filesTruncated);
   let result = null;
   let invalid = null;
   if (resultText === null || resultText === undefined) invalid = 'the check job left no check-result.json';
@@ -55,11 +63,23 @@ export function buildReport({ resultText, paths, filesTruncated = false, checkJo
       '**The check result could not be used, so nothing here is checked:** a maintainer reviews this pull request by hand.', '',
       fence(invalid), '',
     ];
-    if (outside.length) lines.push(`Changed outside \`plugins/<name>/\` (${outside.length}):`, '', fence(outside.slice(0, 500).join('\n')), '');
     return { body: `${lines.join('\n')}\n`, labels: [...labels] };
   }
   if (result.widened) labels.add(LABELS.security.name);
-  const shown = { ...result, outside: outside.slice(0, 500), outsideTotal: outside.length + (filesTruncated ? 1 : 0), needsMaintainer: outside.length > 0 || filesTruncated };
-  if (filesTruncated) shown.outside = [...shown.outside, '(the pull request has more files than the API lists: review all of it)'];
-  return { body: renderSummary(shown, run), labels: [...labels] };
+  // Nothing is outside plugins/<name>/ (the API says so): the artifact's own outside list is not used.
+  return { body: renderSummary({ ...result, outside: [], outsideTotal: 0, needsMaintainer: false }, run), labels: [...labels] };
+}
+
+/** The report for a pull request that changes files outside plugins/<name>/: no verdict, both labels. */
+export function notChecked(outside, filesTruncated = false) {
+  const shown = outside.slice(0, 500);
+  if (outside.length > shown.length) shown.push(`… and ${outside.length - shown.length} more`);
+  if (filesTruncated) shown.push('(the pull request has more files than the API lists: review all of it)');
+  const lines = [
+    SUMMARY_MARKER, '## Plugin checks', '',
+    `**Not checked: this pull request changes repository files outside plugins/ (the ${outside.length}${filesTruncated ? '+' : ''} path(s) below). A maintainer must review it by hand.**`, '',
+    'Its checks ran with the workflows and scripts of this pull request itself, so their results are not shown here.', '',
+    fence(shown.join('\n')), '',
+  ];
+  return { body: `${lines.join('\n')}\n`, labels: [LABELS.maintainer.name, LABELS.security.name] };
 }

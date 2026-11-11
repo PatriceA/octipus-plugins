@@ -117,21 +117,29 @@ longer than any backtick run in it. It adds labels and never removes them:
 - `needs-security-review`: a plugin asks for something new or wider, by
   Octipus's own rules (`diffPermissions` in `src/shared/plugin-permissions.ts`,
   mirrored in [`scripts/lib/permissions.mjs`](scripts/lib/permissions.mjs)):
-  a host scope, a network host or a tool; a wider tool effect; a new or
-  retargeted command; a schedule's tool or cron; an added event handler; a
+  a host scope, a network host, a tool or a secret; a wider tool effect, or
+  one moved to `read` (no per-call approval any more: it can run
+  unattended); a new or retargeted command; a schedule's tool or cron; an added event handler; a
   changed prompt file or text (its sha256); prompt or context roles that
   reach more agents; another context tool; an added or changed page; other
   page files (the `ui` hash); `trustedInput`; a higher `maxProtection`. A
-  schedule's `input` alone, a removal or a narrowing is listed but does not
-  add the label;
+  schedule's or a command's `input` alone, a setting, a removal or a
+  narrowing is listed but does not add the label. (`secrets` and `settings`
+  are read when the pinned CLI lists them, and as none when it does not.)
+  A wildcard network host with fewer than three labels after the `*`
+  (`*.github.io`, `*.co.uk`) is a warning;
 - `needs-maintainer-review`: the pull request touches anything outside
   `plugins/<name>/` (`published.json`, `revoked.json`, `keys/`, `scripts/`,
   `site/`, the workflows, `OCTIPUS_REF`, `package*.json`, `tests/`, the
   template), or the check result is missing, invalid or contradicts its job.
 
-A pull request can edit `pr.yml` itself; what it runs then still has a
-read-only token, and the report still labels it from the API. Code owners'
-review is what keeps such a change out of `main`.
+A pull request can edit `pr.yml` itself: on `pull_request` the checks run the
+pull request's own workflow and scripts, so their artifact and outcomes say
+whatever it likes. So when the API's file list has any path outside
+`plugins/<name>/`, the report shows no verdict at all: "Not checked: this
+pull request changes repository files outside plugins/ … A maintainer must
+review it by hand.", with both labels, decided before the artifact is read.
+Code owners' review is what keeps such a change out of `main`.
 
 Locally: `npm run check -- --plugin <name>` checks your commits against
 `origin/main` (commit first: it reads git, not the working tree), and

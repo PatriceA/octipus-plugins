@@ -8,7 +8,12 @@ name: Plugin checks report
 #     and commit), never from the artifact;
 #   - its changed files and the jobs' outcomes come from the API;
 #   - the `check` job's artifact (check-result.json) is data: validated
-#     strictly and rendered with escaping by scripts/report.mjs.
+#     strictly and rendered with escaping by scripts/report.mjs;
+#   - a pull request that changes any path outside plugins/<name>/ (a
+#     workflow above all: on pull_request the checks run the pull request's
+#     own workflow, so it writes its own artifact) gets "Not checked" and
+#     both labels, decided from the API's file list (pulls.listFiles below)
+#     before the artifact is read.
 # Labels are added, never removed: a maintainer removes them after review.
 
 on: # zizmor: ignore[dangerous-triggers] workflow_run is the point: it runs main's code with a write token, reads the PR's artifact as validated data only, and checks out and runs nothing of the PR
@@ -73,6 +78,7 @@ jobs:
             }
             if (!number) { core.setFailed(`no single open pull request for ${run.head_sha}`); return; }
 
+            // The changed paths from the API (trusted), never from the artifact: they alone decide "Not checked".
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
             const paths = files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRunAttempt, { owner, repo, run_id: run.id, attempt_number: run.run_attempt, per_page: 100 });

@@ -1,6 +1,9 @@
 // H5, M2: the report trusts nothing in the artifact.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { REPO_ROOT } from '../scripts/lib/octi.mjs';
 import { buildReport } from '../scripts/report.mjs';
 import { smallPermissions } from './fixtures/permissions.mjs';
 
@@ -18,9 +21,38 @@ test('H5: paths outside plugins/<name>/ come from the API, not the artifact', ()
   // The artifact claims nothing is outside; the API's file list says otherwise.
   for (const p of ['published.json', 'revoked.json', 'keys/root/root.pub', 'scripts/check.mjs', 'site/astro.config.mjs', '.github/workflows/pr.yml', 'OCTIPUS_REF', 'package.json', 'package-lock.json', 'tests/x.test.mjs', 'plugins/_template/server.mjs', 'plugins/_headers']) {
     const r = buildReport({ resultText: result(), paths: ['plugins/x/a.js', p], checkJob: 'success', testJob: 'success' });
-    assert.deepEqual(r.labels, ['needs-maintainer-review'], p);
+    assert.deepEqual(r.labels, ['needs-maintainer-review', 'needs-security-review'], p);
     assert.ok(r.body.includes(p), p);
+    assert.match(r.body, /Not checked: this pull request changes repository files outside plugins\//);
   }
+});
+
+// Review finding 8 (the reviewer's forge.mjs): a pull request that edits a
+// workflow runs its own checks, so its artifact (and the job outcomes) say
+// whatever it likes. With any path outside plugins/<name>/, the report shows
+// no verdict from them: "Not checked", both labels, decided from the API's
+// paths before the artifact is read.
+test('finding 8: a pull request that changes a workflow gets no verdict from its own artifact', () => {
+  const h = 'a'.repeat(40);
+  const perms = smallPermissions({ name: 'notes-helper', version: '1.1.0', tools: [{ name: 'list', effect: 'read' }] });
+  const forged = { schema: 1, kind: 'octipus-plugins-check', base: h, head: h, octipusRef: h, ok: true, widened: false, needsMaintainer: false, problems: [], outside: [], outsideTotal: 0,
+    plugins: [{ dir: 'plugins/notes-helper', name: 'notes-helper', version: '1.1.0', publishedVersion: '1.0.0', template: false, ok: true, widened: false, firstVersion: false, errors: [], warnings: [], steps: [{ name: 'octi plugin validate', status: 'passed' }], permissions: perms, changes: [] }] };
+  const paths = ['plugins/notes-helper/octipus-plugin.json', 'plugins/notes-helper/server.mjs', '.github/workflows/pr.yml'];
+  for (const resultText of [JSON.stringify(forged), null, 'not json']) {
+    const r = buildReport({ resultText, paths, checkJob: 'success', testJob: 'success' });
+    assert.deepEqual(r.labels, ['needs-maintainer-review', 'needs-security-review']);
+    assert.match(r.body, /\*\*Not checked: this pull request changes repository files outside plugins\/ \(the 1 path\(s\) below\)\. A maintainer must review it by hand\.\*\*/);
+    assert.match(r.body, /```text\n\.github\/workflows\/pr\.yml\n```/);
+    assert.doesNotMatch(r.body, /passed|nothing asks for more|success|notes-helper/i);
+  }
+  // The same with more files than the API lists.
+  const t = buildReport({ resultText: JSON.stringify(forged), paths: paths.slice(0, 2), filesTruncated: true, checkJob: 'success', testJob: 'success' });
+  assert.deepEqual(t.labels, ['needs-maintainer-review', 'needs-security-review']);
+  assert.match(t.body, /Not checked/);
+  // The workflow passes the API's list (pulls.listFiles), never the artifact's.
+  const wf = readFileSync(join(REPO_ROOT, '.github', 'workflows', 'pr-report.yml'), 'utf8');
+  assert.match(wf, /const files = await github\.paginate\(github\.rest\.pulls\.listFiles,/);
+  assert.match(wf, /paths,\n\s+filesTruncated: files\.length >= 3000,/);
 });
 
 test('H5: a missing, invalid or contradictory artifact means a maintainer looks', () => {

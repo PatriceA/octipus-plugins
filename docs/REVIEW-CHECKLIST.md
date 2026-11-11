@@ -10,7 +10,9 @@ For an update that widens nothing, the review is mostly the code diff.
 
 The comment is rendered by the report workflow from validated data; text
 from the pull request appears only inside code blocks. If it says the check
-result could not be used, review everything by hand.
+result could not be used, or "Not checked" (the pull request changes files
+outside plugins/, so its checks ran its own workflow), review everything by
+hand: nothing CI says about it counts.
 
 ## Outside plugins/<name>/ (`needs-maintainer-review`)
 
