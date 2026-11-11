@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { asksFor, asksForLines, egressReadWarning, STORE_NOTE } from './asks-for.mjs';
+import { asksFor, asksForLines, CALENDAR_NOTE, egressReadWarning, MAIL_DRAFT_NOTE, MAIL_READ_NOTE, MAIL_SEND_NOTE, STORE_NOTE } from './asks-for.mjs';
 import { smallPermissions } from '../../tests/fixtures/permissions.mjs';
 
 // The per-user store, in the words of Octipus's ask-summary and install consent.
@@ -20,4 +20,13 @@ test('what it asks for: the per-user store', () => {
 test('store:read reads back what the package stored: no egress warning for it', () => {
   assert.equal(egressReadWarning(['store:read', 'web:read']), '');
   assert.match(egressReadWarning(['notes:read', 'store:read', 'web:read']), /with web:read and notes:read together/);
+});
+
+// Mail and calendar (Octipus #498), in the words of Octipus's install consent.
+test('mail and calendar: their notes; mail:send carries data out', () => {
+  const p = smallPermissions({ host: ['calendar:read', 'mail:draft', 'mail:read', 'mail:send'], tools: [{ name: 'send', effect: 'external' }] });
+  const notes = asksFor(p).find((x) => x.id === 'host').notes.map((n) => (typeof n === 'string' ? n : n.text));
+  for (const note of [MAIL_READ_NOTE, MAIL_DRAFT_NOTE, MAIL_SEND_NOTE, CALENDAR_NOTE]) assert.ok(notes.includes(note), note.slice(0, 30));
+  assert.match(egressReadWarning(['mail:read', 'mail:send']), /with mail:send and mail:read together/);
+  assert.equal(egressReadWarning(['mail:draft', 'mail:read']), '');
 });

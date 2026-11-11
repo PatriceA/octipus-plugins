@@ -23,7 +23,7 @@ export const HOST_TOKEN_WHEN = 'A call gets a short-lived token for them (at mos
   + 'Schedules, events and context calls never get one. The token acts as that user, within their own data and permission rules. '
   + 'An upgrade asks for this approval again.';
 
-export const EGRESS_SCOPES = ['web:read', 'model:complete', 'agent:run'];
+export const EGRESS_SCOPES = ['web:read', 'model:complete', 'agent:run', 'mail:send'];
 
 export function egressReadWarning(scopes) {
   const out = scopes.filter((s) => EGRESS_SCOPES.includes(s));
@@ -42,6 +42,21 @@ export const AGENT_RUN_NOTE = 'agent:run starts background agent runs as the use
 export const DOCUMENTS_WRITE_NOTE = 'documents:write creates text documents in the user\'s Documents and updates the ones this package created, '
   + 'as that user, marked with the package and tool that made them.';
 
+export const MAIL_READ_NOTE = 'mail:read lists and reads the user\'s mail: the Mail module\'s mailboxes (each message at its own protection level) '
+  + 'and the connected Gmail or Microsoft 365 inbox (counted as level 4: it carries no level). Messages above what the plugin may see stay hidden.';
+
+export const MAIL_DRAFT_NOTE = 'mail:draft saves drafts as the user, marked with the plugin that wrote them. It never sends: the user reviews '
+  + 'and sends a draft from Octipus or their mail app. A plugin that only drafts keeps its full protection level. '
+  + 'A draft in the connected Gmail or Microsoft 365 inbox is stored at Google or Microsoft, like everything in that inbox.';
+
+export const MAIL_SEND_NOTE = 'mail:send sends mail as the user to any address, from an external tool only (each call is asked about '
+  + 'by the user\'s permission rules; a schedule or event never sends): one message per approved call, at most 20 an hour. '
+  + 'What it sends leaves the house, so the plugin is limited to data at protection level 1.';
+
+export const CALENDAR_NOTE = 'The calendars connected in Settings → Integrations (Google, Microsoft 365), in the personal workspace only. '
+  + 'Events carry no protection level of their own: they count as the level an admin sets (plugins.calendarProtectionLevel, default 3). '
+  + 'calendar:write adds events and changes only the ones this plugin added.';
+
 export const STORE_NOTE = 'Octipus keeps this data for each user apart: the plugin only ever reaches the data of the user it acts for, never another user\'s. '
   + 'Each user can delete theirs in Settings → My plugin usage; uninstalling the plugin deletes everyone\'s.';
 
@@ -49,6 +64,10 @@ export function scopeNotes(scopes) {
   return [
     ...(scopes.includes('agent:run') ? [AGENT_RUN_NOTE] : []),
     ...(scopes.includes('documents:write') ? [DOCUMENTS_WRITE_NOTE] : []),
+    ...(scopes.includes('mail:read') ? [MAIL_READ_NOTE] : []),
+    ...(scopes.includes('mail:draft') ? [MAIL_DRAFT_NOTE] : []),
+    ...(scopes.includes('mail:send') ? [MAIL_SEND_NOTE] : []),
+    ...(scopes.includes('calendar:read') || scopes.includes('calendar:write') ? [CALENDAR_NOTE] : []),
   ];
 }
 
