@@ -1,10 +1,7 @@
 # The Octipus commit the scripts and CI run the `octi plugin` CLI from
-# (PatriceA/octipus). The first line that is not a comment is the ref.
-# Pinned to bf9551be on PatriceA/octipus branch ccr-c3873536-snjite: it has
-# `octi plugin sign-keys` and the permissions shape that names what each
-# contribution and page is bound to (security finding M3). It is NOT on
-# Octipus main yet, so scripts/sign.mjs (which requires OCTIPUS_REF to be an
-# ancestor of origin/main) refuses to publish until that branch is merged
-# and this pin moves to the merge. Move it forward deliberately, and re-run
-# the tests when you do.
-bf9551befc179a4da647e963fafa330f02c3232f
+# (PatriceA/octipus). The first line that is not a comment is the ref, a full
+# 40-hex commit on Octipus main. Pinned to the merge of #493 (the marketplace
+# host side: sign-keys, verify-keys, unpack, the permissions shape with
+# secrets and settings, mandatory expiry). Move it forward deliberately, and
+# re-run the tests when you do.
+49e577f302cca6b3a29d6be8491f537d8d8a852c

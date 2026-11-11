@@ -1,5 +1,5 @@
 // Permissions objects in the CLI's exact shape (`octi plugin permissions
-// --json`, Octipus bf9551be), for the unit tests: an index and published.json
+// --json`, Octipus at the pinned OCTIPUS_REF), for the unit tests: an index and published.json
 // carry them as they are (scripts/lib/permissions.mjs).
 
 /** What the pinned CLI prints for tests/fixtures/plugins/reader, at `version`. */

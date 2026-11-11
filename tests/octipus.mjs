@@ -16,17 +16,6 @@ function hasRef(dir, ref) {
   try { g(dir, 'rev-parse', '--verify', '--quiet', ref); return true; } catch { return false; }
 }
 
-/**
- * OCTIPUS_REF while it is not merged into PatriceA/octipus main yet
- * (bf9551be, on branch ccr-c3873536-snjite: `octi plugin sign-keys` and the
- * M3 permissions shape). scripts/sign.mjs refuses a CLI whose OCTIPUS_REF is
- * not an ancestor of origin/main, and so it should; in the tests' own clone
- * only, and only for this commit, the commit stands in for origin/main so
- * the publish flow can run end to end. Once the branch is merged and
- * OCTIPUS_REF moves to the merge, this is unused (and can go).
- */
-export const UNMERGED_REF = 'bf9551befc179a4da647e963fafa330f02c3232f';
-
 export function pinnedOctipus(ref = octipusRef()) {
   const src = resolve(process.env.OCTIPUS_SOURCE || process.env.OCTIPUS || join(REPO_ROOT, '..', 'octipus'));
   const dir = join(tmpdir(), `octipus-plugins-test-cli-${ref.slice(0, 16)}`);
@@ -35,17 +24,12 @@ export function pinnedOctipus(ref = octipusRef()) {
     const tmp = `${dir}.tmp-${process.pid}`;
     rmSync(tmp, { recursive: true, force: true });
     execFileSync('git', ['clone', '--quiet', '--no-checkout', '--no-hardlinks', src, tmp], { stdio: 'ignore' });
-    g(tmp, '-c', 'advice.detachedHead=false', 'checkout', '--quiet', ref);
-    // origin/main, for the ancestry check of scripts/sign.mjs.
+    // origin/main first: the pinned commit is on Octipus main, which a clone
+    // of a local checkout only carries as a remote-tracking ref; it is also
+    // what the ancestry check of scripts/sign.mjs reads.
     const main = ['refs/remotes/origin/main', 'refs/heads/main'].find((r) => hasRef(src, r));
     if (main) g(tmp, 'fetch', '--quiet', src, `+${main}:refs/remotes/origin/main`);
-    // Not merged yet (UNMERGED_REF): test-only, its own commit stands in
-    // for origin/main so the ancestry check of sign.mjs passes.
-    if (ref === UNMERGED_REF) {
-      let merged = false;
-      try { g(tmp, 'merge-base', '--is-ancestor', ref, 'refs/remotes/origin/main'); merged = true; } catch { /* not merged yet */ }
-      if (!merged) g(tmp, 'update-ref', 'refs/remotes/origin/main', ref);
-    }
+    g(tmp, '-c', 'advice.detachedHead=false', 'checkout', '--quiet', ref);
     symlinkSync(join(src, 'node_modules'), join(tmp, 'node_modules'));
     renameSync(tmp, dir);
   }

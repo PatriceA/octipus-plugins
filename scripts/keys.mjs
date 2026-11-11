@@ -173,7 +173,7 @@ export async function signKeysDoc({ repo = REPO, refRepo = repo, doc, key, passp
   try {
     await cli.run('sign-keys', [file, '--key', keyPath, '--passphrase-file', '-'], { input: passphrase });
   } catch (err) {
-    stop(`the pinned Octipus CLI did not sign keys.json (octi plugin sign-keys, Octipus bf9551be or later): ${err.message}`);
+    stop(`the pinned Octipus CLI did not sign keys.json (octi plugin sign-keys): ${err.message}`);
   }
   const v = verifyKeysJson(readRegular(file), readRegular(`${file}.sig`, 4096).toString('utf8'), roots, { now });
   if (stable(v.doc) !== stable(doc)) stop('the signed keys.json is not the one built');

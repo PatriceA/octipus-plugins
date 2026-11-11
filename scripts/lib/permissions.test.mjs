@@ -4,7 +4,7 @@ import { assertPermissions, diffPermissions, networkWarnings, permissionsProblem
 
 const H = (c) => c.repeat(64);
 
-// The CLI's shape (octi plugin permissions --json), Octipus bf9551be.
+// The CLI's shape (octi plugin permissions --json) at the pinned OCTIPUS_REF.
 const base = {
   name: 'x', version: '1.0.0', apiVersion: '1.0.0', runtime: 'package',
   host: ['notes:read'], network: ['api.example.com'],
@@ -157,7 +157,7 @@ test('trustedInput, runtime and maxProtection', () => {
 });
 
 // Review finding 11: secrets and settings (a newer CLI's permissions) and a
-// command's input. Absent (OCTIPUS_REF bf9551be) and present both work.
+// command's input. Absent and present both work.
 test('secrets and settings: optional, sorted, diffed; a new secret widens', () => {
   // Wherever the newer CLI puts them, as long as the other keys keep their order.
   for (const at of [6, 13]) {

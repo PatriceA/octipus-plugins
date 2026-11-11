@@ -68,7 +68,7 @@ export function permissionsProblems(p) {
   const bad = (m) => { out.push(m); return out; };
   if (!isObj(p)) return bad('permissions must be an object');
   if (typeof p.pages === 'number' || typeof p.contributions?.prompt === 'boolean' || typeof p.contributions?.context === 'boolean') {
-    return bad('permissions are in the old shape (pages a count, prompt or context a boolean), which hosts refuse: they come from an Octipus CLI older than bf9551be');
+    return bad('permissions are in the old shape (pages a count, prompt or context a boolean), which hosts refuse: they come from an Octipus CLI older than the pinned OCTIPUS_REF');
   }
   const keys = Object.keys(p);
   const required = keys.filter((k) => !OPTIONAL_PERMISSION_KEYS.includes(k));

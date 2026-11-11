@@ -68,12 +68,10 @@ The commands used: `validate`, `hash`, `pack`, `permissions`, `verify`,
 `verify-index`, `sign`, `sign-index`, `keygen`, and `sign-keys` for
 keys.json (all offline, with `--json`).
 
-`OCTIPUS_REF` is bf9551be, on the PatriceA/octipus branch that adds
-`sign-keys` and the permissions shape that names what every contribution
-and page is bound to. That branch is not merged into Octipus `main` yet:
-the checks, `publish build` and `keys sign` run, but `scripts/sign.mjs`
-refuses to sign a release (OCTIPUS_REF must be an ancestor of Octipus
-`origin/main`) until it is merged and `OCTIPUS_REF` moves to the merge.
+`OCTIPUS_REF` pins the Octipus commit on `main` whose CLI every script
+runs (49e577f3, the merge of the marketplace host side). `scripts/sign.mjs`
+and `scripts/keys.mjs` refuse a CLI checkout that is not exactly that commit,
+clean, and an ancestor of Octipus `origin/main`.
 
 ## How the CI works
 
