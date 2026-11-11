@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assertPermissions, diffPermissions, permissionsProblems, PERMISSION_KEYS } from './permissions.mjs';
+import { assertPermissions, diffPermissions, networkWarnings, permissionsProblems, PERMISSION_KEYS } from './permissions.mjs';
 
 const H = (c) => c.repeat(64);
 
@@ -79,9 +79,15 @@ test('host, network and tools', () => {
   assert.deepEqual(widening(diffPermissions(base, withP({ network: ['api.example.com', 'evil.example'] }))), ['network host evil.example']);
   const t = (tools) => withP({ tools, effects: { read: tools.filter((x) => x.effect === 'read').length, write: tools.filter((x) => x.effect === 'write').length, external: tools.filter((x) => x.effect === 'external').length } });
   assert.deepEqual(widening(diffPermissions(base, t([{ name: 'list', effect: 'external' }, { name: 'save', effect: 'write' }]))), ['tool list: read → external']);
-  const narrower = diffPermissions(base, t([{ name: 'list', effect: 'read' }, { name: 'save', effect: 'read' }]));
-  assert.equal(narrower.widened, false);
-  assert.equal(narrower.changes[0].change, 'narrower');
+  // Review finding 11: write → read (or external → read) drops the per-call
+  // approval and unlocks unattended runs: a change that widens.
+  const toRead = diffPermissions(base, t([{ name: 'list', effect: 'read' }, { name: 'save', effect: 'read' }]));
+  assert.equal(toRead.widened, true);
+  assert.deepEqual(texts(toRead), ['+ tool save: write → read (no per-call approval any more: it can run unattended)']);
+  const ext = withP({ tools: [{ name: 'list', effect: 'read' }, { name: 'save', effect: 'external' }], effects: { read: 1, write: 0, external: 1 } });
+  assert.equal(diffPermissions(ext, base).widened, false, 'external → write still asks every call');
+  assert.equal(diffPermissions(ext, base).changes[0].change, 'narrower');
+  assert.equal(diffPermissions(ext, t([{ name: 'list', effect: 'read' }, { name: 'save', effect: 'read' }])).widened, true);
   assert.equal(diffPermissions(base, withP({ host: [], network: [] })).widened, false);
 });
 
@@ -148,4 +154,52 @@ test('trustedInput, runtime and maxProtection', () => {
   assert.equal(diffPermissions(base, withP({ maxProtection: 3 })).widened, true);
   assert.equal(diffPermissions(withP({ maxProtection: 3 }), base).widened, false);
   assert.equal(diffPermissions(base, withP({ apiVersion: '1.1.0' })).widened, false);
+});
+
+// Review finding 11: secrets and settings (a newer CLI's permissions) and a
+// command's input. Absent (OCTIPUS_REF bf9551be) and present both work.
+test('secrets and settings: optional, sorted, diffed; a new secret widens', () => {
+  // Wherever the newer CLI puts them, as long as the other keys keep their order.
+  for (const at of [6, 13]) {
+    const keys = [...PERMISSION_KEYS];
+    keys.splice(at, 0, 'secrets', 'settings');
+    const p = Object.fromEntries(keys.map((k) => [k, k === 'secrets' ? ['API_TOKEN'] : k === 'settings' ? ['base_url', 'limit'] : base[k]]));
+    assert.deepEqual(permissionsProblems(p), [], String(at));
+  }
+  const withS = (secrets, settings) => ({ ...base, ...(secrets ? { secrets } : {}), ...(settings ? { settings } : {}) });
+  assert.deepEqual(permissionsProblems(withS(['A'], null)), []);
+  assert.match(permissionsProblems(withS(['B', 'A'], null)).join(), /secrets/);
+  assert.match(permissionsProblems(withS(['A', 'A'], null)).join(), /twice/);
+  assert.match(permissionsProblems(withS(null, [1])).join(), /settings/);
+  assert.match(permissionsProblems({ ...base, secretz: [] })[0], /exactly/);
+
+  const d = diffPermissions(base, withS(['API_TOKEN'], ['base_url']));
+  assert.deepEqual(texts(d), ['+ secret API_TOKEN', '- setting base_url']);
+  assert.equal(d.widened, true);
+  const settingOnly = diffPermissions(withS(['API_TOKEN'], null), withS(['API_TOKEN'], ['limit']));
+  assert.equal(settingOnly.widened, false);
+  assert.deepEqual(texts(settingOnly), ['- setting limit']);
+  assert.deepEqual(texts(diffPermissions(withS(['A'], ['b']), base)), ['- secret A', '- setting b']);
+  const t = diffPermissions(null, withS(['API_TOKEN'], ['limit'])).changes.map((c) => c.text);
+  assert.ok(t.includes('secret API_TOKEN') && t.includes('setting limit'));
+});
+
+test('a command\'s input: accepted when present; a change, not a widening', () => {
+  const cmd = (x) => withP({ contributions: { commands: [{ name: 'go', tool: 'list', ...x }] } });
+  assert.deepEqual(permissionsProblems(cmd({ input: { q: 1 } })), []);
+  assert.match(permissionsProblems(cmd({ input: 'x' })).join(), /commands/);
+  const d = diffPermissions(cmd({ input: { q: 1 } }), cmd({ input: { q: 2 } }));
+  assert.equal(d.widened, false);
+  assert.deepEqual(texts(d), ['- command /go: input {"q":1} → {"q":2}']);
+  assert.deepEqual(texts(diffPermissions(base, cmd({ input: { q: 1 } }))), ['- command /go: input null → {"q":1}']);
+});
+
+test('a wildcard host on what may be a public suffix is warned about', () => {
+  const w = (network) => networkWarnings(withP({ network }));
+  assert.equal(w(['*.github.io']).length, 1);
+  assert.equal(w(['*.co.uk']).length, 1);
+  assert.equal(w(['*.example.com:8443']).length, 1);
+  assert.equal(w(['*']).length, 1);
+  assert.deepEqual(w(['api.example.com', '*.api.example.com', 'x.github.io']), []);
+  assert.match(w(['*.github.io'])[0], /public suffix/);
 });

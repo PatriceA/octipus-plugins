@@ -40,7 +40,7 @@ import { validateCheckResult } from './lib/check-result.mjs';
 import { assertTreeClean, changedPaths, checkCommit, exportTree, git, lsTree, showFile } from './lib/git.mjs';
 import { checkListing, LISTING_FILE, listingImages, listingWarnings, unknownLicenses } from './lib/listing.mjs';
 import { cli, octipusRef, REPO_ROOT } from './lib/octi.mjs';
-import { diffPermissions, permissionsProblems, stableStringify } from './lib/permissions.mjs';
+import { diffPermissions, networkWarnings, permissionsProblems, stableStringify } from './lib/permissions.mjs';
 import { nameProblem, publishedDiff, revokedDiff, validatePublished, validateRevoked, versionProblem } from './lib/records.mjs';
 import { changedPluginDirs, isSkipped, latestPublished, LIMITS, MANIFEST, measureTree, outsidePluginPaths, parseJson, PLUGINS_DIR } from './lib/repo.mjs';
 import { checkRelPath, readFileUnder, SafeDir } from './lib/safe-fs.mjs';
@@ -177,6 +177,7 @@ export async function checkPlugin(dir, dirName, { published = {} } = {}) {
     } else {
       r.permissions = perm;
       if (perm.runtime === 'in-process') r.errors.push('runtime "in-process" is refused: the marketplace carries sandboxed packages only');
+      for (const w of networkWarnings(perm)) r.warnings.push(w);
       step('octi plugin permissions', 'read');
     }
   } catch (err) {

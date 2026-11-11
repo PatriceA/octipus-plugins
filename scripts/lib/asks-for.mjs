@@ -106,11 +106,18 @@ export function asksFor(perm, { name } = {}) {
     });
   }
 
+  // Newer CLIs list the secrets and settings a package declares (names only).
+  for (const [id, title, what] of [['secrets', 'Secrets', 'secrets'], ['settings', 'Settings', 'settings']]) {
+    const names = arr(p[id]);
+    if (names.length) sections.push({ id, title, lead: `${what}: ${names.join(', ')}`, items: names.map((n) => ({ code: n })), notes: [] });
+  }
+
   const c = p.contributions ?? {};
   const items = [];
   for (const x of arr(c.commands)) {
     if (typeof x !== 'object' || !x) { items.push({ text: `command /${x}` }); continue; }
-    items.push({ text: `command /${x.name} → ${x.tool} (${effectOf(p, x.tool, x.effect)}), run as the user who types it${x.description ? `: ${x.description}` : ''}` });
+    const input = x.input !== undefined ? ` with ${JSON.stringify(x.input)}` : '';
+    items.push({ text: `command /${x.name} → ${x.tool} (${effectOf(p, x.tool, x.effect)})${input}, run as the user who types it${x.description ? `: ${x.description}` : ''}` });
   }
   for (const x of arr(c.schedules)) {
     if (typeof x !== 'object' || !x) { items.push({ text: `schedule ${x}` }); continue; }
