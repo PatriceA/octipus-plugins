@@ -1,0 +1,9 @@
+{
+  "title": "Memo (test fixture)",
+  "summary": "A copy of Octipus's with-store template, used only by this repository's tests of the per-user store. Never published.",
+  "category": "productivity",
+  "tags": ["store", "fixture"],
+  "license": "MIT",
+  "author": { "name": "Octipus", "url": "https://octipus.cc" },
+  "minOctipus": "0.7.0"
+}

@@ -1,7 +1,8 @@
 // Index v2 (docs/plans/marketplace.md, "Index v2"): the v1 fields every host
 // reads (name, version, description, url, sha256) plus the listing metadata,
 // the CLI's permissions (exactly as `octi plugin permissions --json` prints
-// them: scripts/lib/permissions.mjs), apiVersion, minOctipus, the publisher, publishedAt,
+// them, `store` included when the CLI prints it, and left out when it does
+// not, which a host reads as null: scripts/lib/permissions.mjs), apiVersion, minOctipus, the publisher, publishedAt,
 // every published version, and the revocations of revoked.json.
 //
 // Pure: everything comes in as arguments, so the same inputs give the same

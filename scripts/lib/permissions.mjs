@@ -22,6 +22,19 @@
 // before and after that change. A command's `input` is accepted the same way
 // (optional, as a schedule's).
 //
+// Octipus is also adding the per-user store (docs/PLUGIN-PACKAGES.md#store):
+// `store: { quotaBytes } | null`, right after `settings`, so the newer CLI
+// prints
+//
+//   { name, version, apiVersion, runtime, host, network, secrets, settings,
+//     store, tools, effects, contributions, pages, ui, trustedInput, maxProtection }
+//
+// (`{}` in the manifest prints { quotaBytes: 5242880 }, no store prints
+// null). It is optional here too: accepted when present, and only right
+// after `settings`; a listing without it reads as null, as the host's index
+// schema reads it. The store goes with the host scopes `store:read` and/or
+// `store:write` (a write scope: for write and external tools only).
+//
 // An index lists it as it is: the host recomputes it from the downloaded
 // package and compares the whole object (deep equality), and refuses the old
 // shape (`pages` a count, `prompt` a boolean). Nothing here computes
@@ -37,6 +50,33 @@ export const PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'hos
 
 /** Keys a newer CLI adds (sorted name lists); optional, anywhere among the others. */
 export const OPTIONAL_PERMISSION_KEYS = ['secrets', 'settings'];
+
+/** The per-user store: optional, and only right after `settings` (`{ quotaBytes } | null`). */
+export const STORE_KEY = 'store';
+
+/** The keys as the CLI with the per-user store prints them, in its order. */
+export const STORE_PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'host', 'network', 'secrets', 'settings', 'store', 'tools', 'effects', 'contributions', 'pages', 'ui', 'trustedInput', 'maxProtection'];
+
+/** The store's quota per user (Octipus's PLUGIN_STORE_*_QUOTA_BYTES): default 5 MB, 1 KB to 20 MB. */
+export const STORE_DEFAULT_QUOTA_BYTES = 5 * 1024 * 1024;
+export const STORE_MIN_QUOTA_BYTES = 1024;
+export const STORE_MAX_QUOTA_BYTES = 20 * 1024 * 1024;
+
+/** The host scopes that reach the store; `store:write` is a write scope (write and external tools only). */
+export const STORE_SCOPES = ['store:read', 'store:write'];
+
+/** A size in words, as Octipus's `formatStoreBytes`: `5 MB`, `2.5 MB`, `512 KB`, `100 bytes` (MB = 1024²). */
+export function formatStoreBytes(bytes) {
+  const mb = 1024 * 1024;
+  if (bytes >= mb) return `${Number((bytes / mb).toFixed(2))} MB`;
+  if (bytes >= 1024) return `${Number((bytes / 1024).toFixed(1))} KB`;
+  return `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}`;
+}
+
+/** The store in words (Octipus's `storeWords`): "Keeps up to 5 MB of its own data per user". */
+export function storeWords(quotaBytes) {
+  return `Keeps up to ${formatStoreBytes(quotaBytes)} of its own data per user`;
+}
 
 /** JSON with sorted object keys, so equal objects compare equal. */
 export function stableStringify(v) {
@@ -71,8 +111,9 @@ export function permissionsProblems(p) {
     return bad('permissions are in the old shape (pages a count, prompt or context a boolean), which hosts refuse: they come from an Octipus CLI older than the pinned OCTIPUS_REF');
   }
   const keys = Object.keys(p);
-  const required = keys.filter((k) => !OPTIONAL_PERMISSION_KEYS.includes(k));
-  if (required.join(',') !== PERMISSION_KEYS.join(',')) return bad(`permissions must have exactly ${PERMISSION_KEYS.join(', ')}, in that order, and optionally ${OPTIONAL_PERMISSION_KEYS.join(' and ')} (has ${keys.join(', ')})`);
+  const required = keys.filter((k) => !OPTIONAL_PERMISSION_KEYS.includes(k) && k !== STORE_KEY);
+  if (required.join(',') !== PERMISSION_KEYS.join(',')) return bad(`permissions must have exactly ${PERMISSION_KEYS.join(', ')}, in that order, and optionally ${OPTIONAL_PERMISSION_KEYS.join(' and ')}, and ${STORE_KEY} right after settings (has ${keys.join(', ')})`);
+  if (STORE_KEY in p && keys[keys.indexOf(STORE_KEY) - 1] !== 'settings') return bad(`permissions.store must come right after settings, as the CLI prints it (has ${keys.join(', ')})`);
   const text = (v, max) => typeof v === 'string' && v.length <= max && !BAD_TEXT.test(v);
   const list = (v, max) => Array.isArray(v) && v.length <= max;
   for (const k of OPTIONAL_PERMISSION_KEYS) if (k in p && !(list(p[k], 100) && p[k].every((x) => text(x, 100) && x.length > 0))) out.push(`permissions.${k}`);
@@ -99,9 +140,17 @@ export function permissionsProblems(p) {
   }
   if (!list(p.pages, 100) || !p.pages.every((x) => isObj(x) && text(x.path, 200) && text(x.title, 100) && text(x.entry, 300))) out.push('permissions.pages');
   if (p.ui !== null && !(isObj(p.ui) && text(p.ui.dir, 300) && typeof p.ui.sha256 === 'string' && HEX64.test(p.ui.sha256))) out.push('permissions.ui (null, or { dir, sha256 (64 lower-case hex) })');
+  if (STORE_KEY in p && p.store !== null && !(isObj(p.store) && Object.keys(p.store).join(',') === 'quotaBytes'
+    && Number.isSafeInteger(p.store.quotaBytes) && p.store.quotaBytes >= STORE_MIN_QUOTA_BYTES && p.store.quotaBytes <= STORE_MAX_QUOTA_BYTES)) {
+    out.push(`permissions.store (null, or { quotaBytes: a whole number of bytes from ${STORE_MIN_QUOTA_BYTES} to ${STORE_MAX_QUOTA_BYTES} })`);
+  }
   if (typeof p.trustedInput !== 'boolean') out.push('permissions.trustedInput');
   if (![1, 2, 3, 4].includes(p.maxProtection)) out.push('permissions.maxProtection');
   if (out.length) return out;
+  // The CLI validates the manifest first: a store comes with a store scope, and a store scope with a store.
+  if (STORE_KEY in p && (p.store !== null) !== p.host.some((s) => STORE_SCOPES.includes(s))) {
+    out.push(p.store ? 'permissions.store without the host scope store:read or store:write' : 'permissions.host has a store scope but store is null');
+  }
 
   const canonical = canonicalPermissions(p);
   if (JSON.stringify(canonical) !== JSON.stringify(p)) {
@@ -117,11 +166,17 @@ export function permissionsProblems(p) {
 /**
  * `p` rebuilt in the CLI's form (computePermissions): key order, sorted
  * lists, effects from the tools. `secrets` and `settings` (sorted) keep the
- * position `p` has them in: the CLI that adds them decides where.
+ * position `p` has them in: the CLI that adds them decides where. `store`
+ * (checked to follow `settings`) is `{ quotaBytes }` or null.
  */
 function canonicalPermissions(p) {
   const base = canonicalBase(p);
-  return Object.fromEntries(Object.keys(p).map((k) => [k, OPTIONAL_PERMISSION_KEYS.includes(k) ? [...p[k]].sort(byCodeUnit) : base[k]]));
+  const value = (k) => {
+    if (OPTIONAL_PERMISSION_KEYS.includes(k)) return [...p[k]].sort(byCodeUnit);
+    if (k === STORE_KEY) return p.store ? { quotaBytes: p.store.quotaBytes } : null;
+    return base[k];
+  };
+  return Object.fromEntries(Object.keys(p).map((k) => [k, value(k)]));
 }
 
 function canonicalBase(p) {
@@ -184,6 +239,9 @@ const reachesMore = (before, after) => before !== undefined && (after === undefi
  * `external` widens although its rank goes down: a read tool runs without
  * the per-call approval, and so can run unattended (schedules, events).
  * A new secret widens; a new setting, or a removed one, is a change.
+ * A new store, or a larger quota, widens; a smaller quota narrows; a removed
+ * store does not widen. A listing without `store` (an older CLI) reads as
+ * none, as the host reads it.
  */
 export function diffPermissions(before, after) {
   if (!before) {
@@ -218,6 +276,14 @@ export function diffPermissions(before, after) {
     const a = after[kind] ?? [];
     for (const v of a) if (!b.includes(v)) add(kind, 'added', `${label} ${v}`, widens);
     for (const v of b) if (!a.includes(v)) add(kind, 'removed', `${label} ${v}`, false);
+  }
+  const storeWas = before.store ?? null;
+  const storeNow = after.store ?? null;
+  if (!storeWas && storeNow) add('store', 'added', `store (${formatStoreBytes(storeNow.quotaBytes)} per user)`, true);
+  else if (storeWas && !storeNow) add('store', 'removed', `store (${formatStoreBytes(storeWas.quotaBytes)} per user)`, false);
+  else if (storeWas && storeNow && storeWas.quotaBytes !== storeNow.quotaBytes) {
+    const wider = storeNow.quotaBytes > storeWas.quotaBytes;
+    add('store', wider ? 'wider' : 'narrower', `store quota ${formatStoreBytes(storeWas.quotaBytes)} → ${formatStoreBytes(storeNow.quotaBytes)} per user`, wider);
   }
   diffContributions(before, after, add);
   if (!before.trustedInput && after.trustedInput) add('trustedInput', 'added', 'model.trustedInput (its model calls may be approved to run on CLI lanes)', true);
@@ -301,6 +367,7 @@ function describeAll(a) {
   for (const t of a.tools) lines.push(`tool ${t.name} (${t.effect})`);
   for (const s of a.secrets ?? []) lines.push(`secret ${s}`);
   for (const s of a.settings ?? []) lines.push(`setting ${s}`);
+  if (a.store) lines.push(`store (${formatStoreBytes(a.store.quotaBytes)} per user)`);
   for (const x of c.commands) lines.push(`command /${x.name} → ${x.tool}${x.input !== undefined ? ` with ${JSON.stringify(x.input)}` : ''}`);
   for (const x of c.schedules) lines.push(`schedule ${x.id} (${x.cron} UTC) → ${x.tool}${x.input !== undefined ? ` with ${JSON.stringify(x.input)}` : ''}`);
   for (const x of c.events) lines.push(`event ${x.on} → ${x.tool}`);

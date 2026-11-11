@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { buildIndex, serializeIndex } from '../scripts/lib/index-v2.mjs';
 import { assertCleanPages, buildSite, htmlPages } from './helpers.mjs';
-import { readerPermissions } from './fixtures/permissions.mjs';
+import { readerPermissions, withStore } from './fixtures/permissions.mjs';
 import { scriptHashes } from '../site/src/lib/inline-scripts.mjs';
 import { auditPage } from '../site/src/lib/page-audit.mjs';
 
@@ -17,7 +17,8 @@ after(() => rmSync(tmp, { recursive: true, force: true }));
 const fixture = join(import.meta.dirname, 'fixtures', 'plugins', 'reader');
 // The CLI's permissions for the reader fixture, with a command and a
 // schedule added (octi plugin permissions --json).
-const permissions = readerPermissions();
+// With the per-user store of a newer CLI (store:read and store:write, a 5 MB quota).
+const permissions = withStore({ ...readerPermissions(), host: [...readerPermissions().host, 'store:read', 'store:write'].sort() }, { quotaBytes: 5 * 1024 * 1024 });
 permissions.contributions.commands = [{ name: 'read', tool: 'read_url' }];
 permissions.contributions.schedules = [{ id: 'digest', cron: '0 7 * * 1', tool: 'reader_action', input: { limit: 5 } }];
 permissions.contributions.prompt = { file: 'prompt.md', sha256: 'ab'.repeat(32), roles: ['researcher'] };
@@ -69,7 +70,9 @@ test('with fixture data', () => {
   assert.match(page, /1,234 downloads/);
   assert.match(page, /ed25519:efef/);
   assert.match(page, /What it asks for/);
-  assert.match(page, /host API: model:complete, notes:write, tasks:write, web:read/);
+  assert.match(page, /host API: model:complete, notes:write, store:read, store:write, tasks:write, web:read/);
+  assert.match(page, /Keeps up to 5 MB of its own data per user/);
+  assert.match(page, /store: up to 5242880 bytes per user \(store:read, store:write\)/);
   assert.match(page, /Changes data in the connected system/);
   assert.match(page, /schedule digest 0 7 \* \* 1 \(UTC\) → reader_action \(read\) with \{&quot;limit&quot;:5\}, run as the installing admin, unattended/);
   assert.match(page, /command \/read → read_url \(read\), run as the user who types it/);

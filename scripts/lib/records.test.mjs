@@ -42,6 +42,13 @@ test('C1: a record is exactly what publish writes', () => {
   assert.match(bad({ permissions: { ...rest, ui } }), /in that order/);
   assert.match(bad({ permissions: { name: 'reader', version: '1.0.0', runtime: 'package' } }), /permissions must have exactly/);
   assert.match(bad({ apiVersion: '2.0.0' }), /permissions\.apiVersion 1\.0\.0 is not the record's 2\.0\.0/);
+  // The per-user store (a newer CLI): { quotaBytes } or null right after settings, within the bounds; absent is fine.
+  const stored = (store) => smallPermissions({ name: 'reader', host: ['store:read'], store });
+  assert.deepEqual(recordProblems('reader', '1.0.0', { ...goodRecord(), permissions: stored({ quotaBytes: 5242880 }) }), []);
+  assert.deepEqual(recordProblems('reader', '1.0.0', { ...goodRecord(), permissions: smallPermissions({ name: 'reader', store: null }) }), []);
+  assert.match(bad({ permissions: stored({ quotaBytes: 20971521 }) }), /permissions\.store/);
+  assert.match(bad({ permissions: stored({ quotaBytes: 512 }) }), /permissions\.store/);
+  assert.match(bad({ permissions: { ...smallPermissions({ name: 'reader' }), store: null } }), /right after settings/);
   assert.match(bad({ listing: { ...listing, screenshots: ['../_headers'] } }), /listing/);
   assert.throws(() => validatePublished({ zzz: { '1.0.0': { ...goodRecord('zzz'), dir: '../tests/fixtures/x' } } }), /dir must be "zzz"/);
   assert.throws(() => validatePublished({ '../x': {} }), /not a plugin name/);

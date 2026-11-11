@@ -1,11 +1,15 @@
 // Permissions objects in the CLI's exact shape (`octi plugin permissions
 // --json`, Octipus at the pinned OCTIPUS_REF), for the unit tests: an index and published.json
 // carry them as they are (scripts/lib/permissions.mjs).
+//
+// The pinned CLI prints `secrets` and `settings` after `network`; the CLI
+// with the per-user store (Octipus 5b050a2f, not pinned yet) also prints
+// `store` right after `settings`. `withStore` makes the newer shape.
 
 /** What the pinned CLI prints for tests/fixtures/plugins/reader, at `version`. */
 export const readerPermissions = (version = '1.0.0') => ({
   name: 'reader', version, apiVersion: '1.0.0', runtime: 'package',
-  host: ['model:complete', 'notes:write', 'tasks:write', 'web:read'], network: [],
+  host: ['model:complete', 'notes:write', 'tasks:write', 'web:read'], network: [], secrets: [], settings: [],
   tools: [{ name: 'create_tasks', effect: 'write' }, { name: 'read_url', effect: 'read' }, { name: 'reader_action', effect: 'read' }, { name: 'save_note', effect: 'write' }],
   effects: { read: 2, write: 2, external: 0 },
   contributions: { commands: [], schedules: [], events: [], prompt: null, context: null },
@@ -14,14 +18,35 @@ export const readerPermissions = (version = '1.0.0') => ({
   trustedInput: false, maxProtection: 1,
 });
 
-/** A small package's permissions: one read tool, `host`, nothing else. */
-export const smallPermissions = ({ name = 'x', version = '1.0.0', host = [], tools = [{ name: 't', effect: 'read' }] } = {}) => {
+/**
+ * A small package's permissions: one read tool, `host`, nothing else; in the
+ * shape of a listing from before `secrets` and `settings` were listed unless
+ * `store` is given (`{ quotaBytes }` or null), which gives the shape of the
+ * CLI with the per-user store (secrets, settings, store).
+ */
+export const smallPermissions = ({ name = 'x', version = '1.0.0', host = [], tools = [{ name: 't', effect: 'read' }], store } = {}) => {
   const effects = { read: 0, write: 0, external: 0 };
   for (const t of tools) effects[t.effect] += 1;
   return {
     name, version, apiVersion: '1.0.0', runtime: 'package', host: [...host].sort(), network: [],
+    ...(store !== undefined ? { secrets: [], settings: [], store } : {}),
     tools, effects,
     contributions: { commands: [], schedules: [], events: [], prompt: null, context: null },
     pages: [], ui: null, trustedInput: false, maxProtection: 1,
   };
+};
+
+/**
+ * `p` in the shape of the CLI with the per-user store: `store` right after
+ * `settings` (added, empty, after `network` when `p` has neither).
+ */
+export const withStore = (p, store) => {
+  const out = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (k === 'store') continue;
+    if (k === 'tools' && !('settings' in p)) Object.assign(out, 'secrets' in p ? {} : { secrets: [] }, { settings: [], store });
+    out[k] = v;
+    if (k === 'settings') out.store = store;
+  }
+  return out;
 };

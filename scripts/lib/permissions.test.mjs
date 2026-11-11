@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assertPermissions, diffPermissions, networkWarnings, permissionsProblems, PERMISSION_KEYS } from './permissions.mjs';
+import { assertPermissions, diffPermissions, formatStoreBytes, networkWarnings, permissionsProblems, PERMISSION_KEYS, STORE_PERMISSION_KEYS, storeWords } from './permissions.mjs';
+import { withStore } from '../../tests/fixtures/permissions.mjs';
 
 const H = (c) => c.repeat(64);
 
@@ -182,6 +183,61 @@ test('secrets and settings: optional, sorted, diffed; a new secret widens', () =
   assert.deepEqual(texts(diffPermissions(withS(['A'], ['b']), base)), ['- secret A', '- setting b']);
   const t = diffPermissions(null, withS(['API_TOKEN'], ['limit'])).changes.map((c) => c.text);
   assert.ok(t.includes('secret API_TOKEN') && t.includes('setting limit'));
+});
+
+// The per-user store (Octipus 5b050a2f): `store: { quotaBytes } | null`
+// right after `settings`, with store:read / store:write. Absent (the pinned
+// CLI) reads as null.
+test('store: optional, right after settings, within the bounds; absent reads as null', () => {
+  const MB = 1024 * 1024;
+  const stored = (store, host = ['notes:read', 'store:read', 'store:write']) => withStore(withP({ host }), store);
+  const five = stored({ quotaBytes: 5 * MB });
+  assert.deepEqual(Object.keys(five), STORE_PERMISSION_KEYS);
+  assert.deepEqual(permissionsProblems(five), []);
+  assert.deepEqual(permissionsProblems(withStore(base, null)), []);
+  assert.deepEqual(permissionsProblems(base), [], 'the pinned CLI\'s shape, without store');
+  for (const quotaBytes of [1024, 20 * MB]) assert.deepEqual(permissionsProblems(stored({ quotaBytes })), [], String(quotaBytes));
+  for (const quotaBytes of [1023, 20 * MB + 1, 1024.5, '5242880', null, -1]) assert.match(permissionsProblems(stored({ quotaBytes })).join(), /permissions\.store/, String(quotaBytes));
+  for (const store of [{}, { quotaBytes: 5 * MB, extra: 1 }, [], true, 5 * MB]) assert.match(permissionsProblems(stored(store)).join(), /permissions\.store/, JSON.stringify(store));
+  // Only right after settings, where the CLI prints it.
+  const { store, ...rest } = five;
+  assert.match(permissionsProblems({ ...rest, store })[0], /right after settings/);
+  assert.match(permissionsProblems({ ...base, store: null })[0], /right after settings/, 'no settings before it');
+  // With a store scope, and only then (the CLI refuses the manifest otherwise).
+  assert.match(permissionsProblems(stored({ quotaBytes: 5 * MB }, ['notes:read'])).join(), /without the host scope/);
+  assert.match(permissionsProblems(stored(null, ['store:read'])).join(), /store is null/);
+  assert.deepEqual(permissionsProblems(stored({ quotaBytes: MB }, ['store:read'])), []);
+});
+
+test('store: the diff and the words are Octipus\'s', () => {
+  const MB = 1024 * 1024;
+  const host = ['notes:read', 'store:read', 'store:write'];
+  const stored = (quotaBytes) => withStore(withP({ host }), quotaBytes === null ? null : { quotaBytes });
+  const noStore = withP({ host });
+  assert.equal(formatStoreBytes(5 * MB), '5 MB');
+  assert.equal(formatStoreBytes(2.5 * MB), '2.5 MB');
+  assert.equal(formatStoreBytes(512 * 1024), '512 KB');
+  assert.equal(formatStoreBytes(100), '100 bytes');
+  assert.equal(storeWords(5 * MB), 'Keeps up to 5 MB of its own data per user');
+
+  const store = (d) => d.changes.filter((c) => c.kind === 'store').map(({ kind, change, text, widens }) => ({ kind, change, text, widens }));
+  assert.deepEqual(store(diffPermissions(noStore, stored(5 * MB))), [{ kind: 'store', change: 'added', text: 'store (5 MB per user)', widens: true }]);
+  // A listing without the key (the pinned CLI) reads as null, both ways.
+  assert.deepEqual(store(diffPermissions(base, stored(5 * MB))), [{ kind: 'store', change: 'added', text: 'store (5 MB per user)', widens: true }]);
+  assert.deepEqual(store(diffPermissions(stored(null), base)), []);
+  assert.deepEqual(diffPermissions(base, withStore(base, null)).changes, []);
+  const wider = diffPermissions(stored(5 * MB), stored(10 * MB));
+  assert.deepEqual(store(wider), [{ kind: 'store', change: 'wider', text: 'store quota 5 MB → 10 MB per user', widens: true }]);
+  assert.equal(wider.widened, true);
+  const narrower = diffPermissions(stored(10 * MB), stored(5 * MB));
+  assert.deepEqual(store(narrower), [{ kind: 'store', change: 'narrower', text: 'store quota 10 MB → 5 MB per user', widens: false }]);
+  assert.equal(narrower.widened, false);
+  const removed = diffPermissions(stored(5 * MB), stored(null));
+  assert.deepEqual(store(removed), [{ kind: 'store', change: 'removed', text: 'store (5 MB per user)', widens: false }]);
+  assert.equal(removed.widened, false);
+  assert.deepEqual(diffPermissions(stored(5 * MB), stored(5 * MB)).changes, []);
+  assert.ok(diffPermissions(null, stored(5 * MB)).changes.some((c) => c.text === 'store (5 MB per user)'));
+  assert.ok(!diffPermissions(null, stored(null)).changes.some((c) => c.text.startsWith('store')));
 });
 
 test('a command\'s input: accepted when present; a change, not a widening', () => {

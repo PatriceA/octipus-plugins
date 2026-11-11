@@ -120,10 +120,12 @@ longer than any backtick run in it. It adds labels and never removes them:
   unattended); a new or retargeted command; a schedule's tool or cron; an added event handler; a
   changed prompt file or text (its sha256); prompt or context roles that
   reach more agents; another context tool; an added or changed page; other
-  page files (the `ui` hash); `trustedInput`; a higher `maxProtection`. A
-  schedule's or a command's `input` alone, a setting, a removal or a
-  narrowing is listed but does not add the label. (`secrets` and `settings`
-  are read when the pinned CLI lists them, and as none when it does not.)
+  page files (the `ui` hash); a per-user store or a larger store quota;
+  `trustedInput`; a higher `maxProtection`. A
+  schedule's or a command's `input` alone, a setting, a removal (a store's
+  too) or a narrowing (a smaller quota) is listed but does not add the
+  label. (`secrets` and `settings` are read when the pinned CLI lists them,
+  and as none when it does not; `store` is read as null when it is absent.)
   A wildcard network host with fewer than three labels after the `*`
   (`*.github.io`, `*.co.uk`) is a warning;
 - `needs-maintainer-review`: the pull request touches anything outside
@@ -411,7 +413,8 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
     "publisher": "Octipus", "license": "MIT", "publishedAt": "…", "keyId": "ed25519:<hex>",
     "permissions": {
       "name": "weekly-review", "version": "1.2.0", "apiVersion": "1.0.0", "runtime": "package",
-      "host": ["notes:write", "tasks:read"], "network": [],
+      "host": ["notes:write", "store:read", "store:write", "tasks:read"], "network": [],
+      "secrets": [], "settings": [], "store": { "quotaBytes": 5242880 },
       "tools": [{ "name": "review", "effect": "read" }, { "name": "save", "effect": "write" }],
       "effects": { "read": 1, "write": 1, "external": 0 },
       "contributions": {
@@ -432,7 +435,12 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
 ```
 
 - `permissions` is exactly what `octi plugin permissions --json` prints for
-  the package, key for key and in its order: what each command, schedule
+  the package, key for key and in its order: the secrets' and settings'
+  names, the per-user store's quota (`store`, right after `settings`:
+  `{ "quotaBytes": n }` with n from 1024 to 20971520, `{}` in the manifest
+  printing the default 5242880, and null without a store; a CLI from before
+  the store prints no `store`, and a host reads a listing without it as
+  null), what each command, schedule
   and event is bound to (its tool; a schedule's cron and `input` when it has
   one), the prompt file's sha256 and roles, the context tool and roles,
   every page's path, title and entry, and the page files' hash (`ui`, null

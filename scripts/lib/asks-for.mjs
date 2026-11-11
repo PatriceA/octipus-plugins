@@ -10,6 +10,7 @@
 // install consent (src/shared/plugin-declarations.ts).
 //
 // Shared by the site (the plugin page) and the PR summary.
+import { STORE_SCOPES, storeWords } from './permissions.mjs';
 
 export const EFFECT_TEXT = {
   read: 'Reads only. Allowed by default; a user\'s rule can ask or deny.',
@@ -26,7 +27,8 @@ export const EGRESS_SCOPES = ['web:read', 'model:complete', 'agent:run'];
 
 export function egressReadWarning(scopes) {
   const out = scopes.filter((s) => EGRESS_SCOPES.includes(s));
-  const reads = scopes.filter((s) => s.endsWith(':read') && s !== 'web:read');
+  // store:read reads back what the package itself stored, not the user's data.
+  const reads = scopes.filter((s) => s.endsWith(':read') && s !== 'web:read' && s !== 'store:read');
   if (out.length === 0 || reads.length === 0) return '';
   return `Warning: with ${out.join(' and ')} and ${reads.join(', ')} together, this package can send what it reads anywhere. `
     + 'It is limited to data at protection level 1.';
@@ -39,6 +41,9 @@ export const AGENT_RUN_NOTE = 'agent:run starts background agent runs as the use
 
 export const DOCUMENTS_WRITE_NOTE = 'documents:write creates text documents in the user\'s Documents and updates the ones this package created, '
   + 'as that user, marked with the package and tool that made them.';
+
+export const STORE_NOTE = 'Octipus keeps this data for each user apart: the plugin only ever reaches the data of the user it acts for, never another user\'s. '
+  + 'Each user can delete theirs in Settings → My plugin usage; uninstalling the plugin deletes everyone\'s.';
 
 export function scopeNotes(scopes) {
   return [
@@ -110,6 +115,18 @@ export function asksFor(perm, { name } = {}) {
   for (const [id, title, what] of [['secrets', 'Secrets', 'secrets'], ['settings', 'Settings', 'settings']]) {
     const names = arr(p[id]);
     if (names.length) sections.push({ id, title, lead: `${what}: ${names.join(', ')}`, items: names.map((n) => ({ code: n })), notes: [] });
+  }
+
+  // Newer CLIs print the per-user store ({ quotaBytes } or null; absent reads as none).
+  if (p.store && typeof p.store === 'object' && Number.isSafeInteger(p.store.quotaBytes)) {
+    const scopes = host.filter((s) => STORE_SCOPES.includes(s));
+    sections.push({
+      id: 'store',
+      title: 'Store',
+      lead: storeWords(p.store.quotaBytes),
+      items: [{ text: `store: up to ${p.store.quotaBytes} bytes per user (${scopes.join(', ') || 'no store scope'})` }],
+      notes: [STORE_NOTE],
+    });
   }
 
   const c = p.contributions ?? {};
