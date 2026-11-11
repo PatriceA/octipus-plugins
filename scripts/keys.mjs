@@ -2,10 +2,10 @@
 // keys.json: which signing keys the marketplace's offline ROOT key endorses.
 //
 //   node scripts/keys.mjs build  (--previous <file|url> | --first) [--out keys.json]
-//                                [--expires-days <n> | --no-expires]
+//                                [--expires-days <n>]
 //   node scripts/keys.mjs sign   (--previous <file|url> | --first) --key <root.key>
 //                                [--passphrase-file <path|->] [--out-dir release-keys/]
-//                                [--expires-days <n> | --no-expires]
+//                                [--expires-days <n>]
 //   node scripts/keys.mjs verify <keys.json> [--root-pub <file>…]
 //
 // (`npm run keys -- …` is the same; in the root key session run it with
@@ -26,17 +26,16 @@
 // against the previous keys.json (the live one), which must verify with a
 // root key first. Like sign.mjs it imports Node's built-ins and sign.mjs only.
 //
-// `expires` is generatedAt + 180 days (--expires-days): hosts refuse an
-// expired keys.json, and with it the whole marketplace, so the root key
-// holder signs a new one before then (a reminder is theirs to set).
-// --no-expires leaves it out: Octipus bf9551be (OCTIPUS_REF) reads keys.json
-// with a strict schema that does not know `expires` yet, so its hosts refuse
-// a keys.json that has it, until Octipus accepts the field.
+// `expires` is required (Octipus requires it, at most 90 days after
+// generatedAt): generatedAt + 60 days by default (--expires-days, at most
+// 90). Hosts refuse an expired keys.json, and with it the whole marketplace,
+// so the root key holder signs a new one before then (a reminder is theirs
+// to set).
 import { realpathSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { checkKeysDoc, fingerprint, LIVE_KEYS, pinnedCli, readRegular, readSource, REPO, safeRel, SignError, stable, verifyKeysJson, writeNew } from './sign.mjs';
+import { checkKeysDoc, fingerprint, KEYS_MAX_DAYS, LIVE_KEYS, pinnedCli, readRegular, readSource, REPO, safeRel, SignError, stable, verifyKeysJson, writeNew } from './sign.mjs';
 
 const stop = (m) => { throw new SignError(m); };
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
@@ -53,15 +52,15 @@ export function repoRootPubs(repo = REPO) {
  * The keys.json document for `keys/endorsements.json`, after `previous` (a
  * verified keys.json document, or null for the first one).
  */
-/** How long a keys.json is valid by default (days). */
-export const KEYS_EXPIRES_DAYS = 180;
+/** How long a keys.json is valid by default (days); hosts accept at most KEYS_MAX_DAYS (90). */
+export const KEYS_EXPIRES_DAYS = 60;
 
-/** `--expires-days`: a whole number of days, 1 to 3650; null for none. */
-export function expiresDays(value, fallback) {
+/** `--expires-days`: a whole number of days, 1 to KEYS_MAX_DAYS. */
+export function expiresDays(value, fallback = KEYS_EXPIRES_DAYS) {
   if (value === undefined) return fallback;
-  if (value === null) return null;
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 1 || n > 3650) stop(`--expires-days must be a whole number of days from 1 to 3650, not ${JSON.stringify(value)}`);
+  if (!Number.isInteger(n) || n < 1) stop(`--expires-days must be a whole number of days from 1 to ${KEYS_MAX_DAYS}, not ${JSON.stringify(value)}`);
+  if (n > KEYS_MAX_DAYS) stop(`--expires-days ${n} is over the ${KEYS_MAX_DAYS} days hosts accept for keys.json`);
   return n;
 }
 
@@ -89,7 +88,7 @@ export function buildKeysDoc({ repo = REPO, previous = null, now = new Date(), e
     schema: 1,
     version: previous ? previous.version + 1 : 1,
     generatedAt: isoZ(now),
-    ...(expiresInDays ? { expires: isoZ(new Date(now.getTime() + expiresInDays * 86_400_000)) } : {}),
+    expires: isoZ(new Date(now.getTime() + expiresDays(expiresInDays) * 86_400_000)),
     signingKeys,
     revokedKeys,
   };
@@ -143,11 +142,10 @@ async function previousDoc(values, roots) {
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { 'expires-days': { type: 'string' }, 'no-expires': { type: 'boolean' }, previous: { type: 'string' }, first: { type: 'boolean' }, out: { type: 'string' }, 'out-dir': { type: 'string' }, key: { type: 'string' }, 'passphrase-file': { type: 'string' }, 'root-pub': { type: 'string', multiple: true } },
+    options: { 'expires-days': { type: 'string' }, previous: { type: 'string' }, first: { type: 'boolean' }, out: { type: 'string' }, 'out-dir': { type: 'string' }, key: { type: 'string' }, 'passphrase-file': { type: 'string' }, 'root-pub': { type: 'string', multiple: true } },
   });
   const [cmd, file] = positionals;
-  if (values['no-expires'] && values['expires-days'] !== undefined) stop('--expires-days or --no-expires, not both');
-  const expiresInDays = values['no-expires'] ? null : expiresDays(values['expires-days'], KEYS_EXPIRES_DAYS);
+  const expiresInDays = expiresDays(values['expires-days'], KEYS_EXPIRES_DAYS);
   const roots = values['root-pub']?.length ? values['root-pub'].map((p) => readRegular(resolve(p), 64 * 1024).toString('utf8')) : repoRootPubs();
   if (cmd === 'verify') {
     if (!file) stop('verify <keys.json>');
@@ -168,7 +166,7 @@ async function main() {
     else stop('--passphrase-file <path|-> is required');
     const r = await signKeys({ expiresInDays, key: values.key, passphrase, previous: await previousDoc(values, roots), outDir: resolve(values['out-dir'] ?? 'release-keys'), roots });
     process.stdout.write(`signed ${r.file} (v${r.doc.version}) with root ${r.rootKeyId}\nDeploy keys.json and keys.json.sig to plugins.octipus.cc/ before the next publish.\n`);
-    process.stdout.write(r.doc.expires ? `It expires at ${r.doc.expires}: hosts refuse it after that. Sign and deploy a new one before then; set yourself a reminder.\n` : 'It has no expires (--no-expires).\n');
+    process.stdout.write(`It expires at ${r.doc.expires}: hosts refuse it after that. Sign and deploy a new one well before then; set yourself a reminder.\n`);
     return;
   }
   stop('keys.mjs build | sign | verify (see the comment at the top of scripts/keys.mjs)');

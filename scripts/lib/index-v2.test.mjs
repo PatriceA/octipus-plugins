@@ -11,7 +11,7 @@ const sources = { 'weekly-review': { listing: { title: 'Weekly review', summary:
 const revoked = { packages: [{ name: 'weekly-review', version: '1.0.0', reason: 'bug' }], keys: [{ keyId: `ed25519:${'d'.repeat(64)}`, reason: 'leaked' }] };
 
 test('index v2: v1 fields, listing metadata, every version, absolute URLs, revocations', () => {
-  const index = buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z' });
+  const index = buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' });
   assert.equal(index.schema, 2);
   assert.equal(index.packages.length, 2);
   const [latest, older] = index.packages;
@@ -32,29 +32,31 @@ test('index v2: v1 fields, listing metadata, every version, absolute URLs, revoc
   assert.equal(isRevoked(index, 'weekly-review', '1.1.0'), null);
 });
 
-test('expires: right after generatedAt when given, absent otherwise, never before generatedAt', () => {
+test('expires: required, after generatedAt, at most 45 days after it (review finding 7)', () => {
   const index = buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' });
   assert.deepEqual(Object.keys(index).slice(0, 3), ['schema', 'generatedAt', 'expires']);
   assert.equal(index.expires, '2026-12-10T12:00:00Z');
-  assert.ok(!('expires' in buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z' })));
+  assert.throws(() => buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z' }), /after generatedAt/);
   assert.throws(() => buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-11-10T12:00:00Z' }), /after generatedAt/);
+  assert.equal(buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-25T12:00:00Z' }).expires, '2026-12-25T12:00:00Z');
+  assert.throws(() => buildIndex({ published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-25T12:00:01Z' }), /more than 45 days/);
 });
 
 test('an entry whose permissions are not the CLI\'s exact object, or not its own, is refused', () => {
-  const bad = (permissions) => () => buildIndex({ published: { 'weekly-review': { '1.1.0': { ...rec('1.1.0', '2026-11-08T00:00:00Z'), permissions } } }, sources, revoked, generatedAt: '2026-11-10T12:00:00Z' });
+  const bad = (permissions) => () => buildIndex({ published: { 'weekly-review': { '1.1.0': { ...rec('1.1.0', '2026-11-08T00:00:00Z'), permissions } } }, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' });
   assert.throws(bad({ ...perm, pages: 0 }), /old shape/);
   assert.throws(bad({ ...perm, version: '1.0.0' }), /permissions are for weekly-review 1\.0\.0/);
   assert.throws(bad({ ...perm, apiVersion: '2.0.0' }), /apiVersion 2\.0\.0/);
 });
 
 test('the same inputs give the same bytes', () => {
-  const args = { published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z' };
+  const args = { published, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' };
   assert.equal(serializeIndex(buildIndex(args)), serializeIndex(buildIndex(structuredClone(args))));
   assert.ok(serializeIndex(buildIndex(args)).endsWith('}\n'));
 });
 
 test('an empty marketplace', () => {
-  const index = buildIndex({ published: {}, sources: {}, revoked: { packages: [], keys: [] }, generatedAt: 'x' });
+  const index = buildIndex({ published: {}, sources: {}, revoked: { packages: [], keys: [] }, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' });
   assert.deepEqual(index.packages, []);
   assert.deepEqual(index.revoked, []);
 });

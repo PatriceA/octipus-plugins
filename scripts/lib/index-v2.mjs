@@ -8,6 +8,7 @@
 // bytes (the index is signed over its exact bytes).
 import { assertPermissions } from './permissions.mjs';
 import { sortSemverDesc } from './semver.mjs';
+import { INDEX_MAX_DAYS } from '../sign.mjs';
 
 export const BASE_URL = 'https://plugins.octipus.cc';
 export const PUBLISHER = 'Octipus';
@@ -30,12 +31,15 @@ export function assetPath(name, file) {
  *   source is gone falls back to the listing recorded when it was published)
  * @param {{ packages: object[], keys: object[] }} args.revoked
  * @param {string} args.generatedAt ISO time
- * @param {string} [args.expires] ISO time after which hosts refuse the index
- *   (publish sets generatedAt + 30 days); left out when not given
+ * @param {string} args.expires ISO time after which hosts refuse the index
+ *   (publish sets generatedAt + 30 days): required, at most 45 days after
+ *   generatedAt (Octipus refuses an index without it, or with a longer life)
  * @param {string} [args.baseUrl]
  */
 export function buildIndex({ published, sources, revoked, generatedAt, expires, baseUrl = BASE_URL }) {
-  if (expires !== undefined && !(typeof expires === 'string' && Date.parse(expires) > Date.parse(generatedAt))) throw new Error(`the index's expires (${expires}) must be a time after generatedAt (${generatedAt})`);
+  const life = typeof expires === 'string' ? Date.parse(expires) - Date.parse(generatedAt) : Number.NaN;
+  if (!(life > 0)) throw new Error(`the index's expires (${expires}) must be a time after generatedAt (${generatedAt})`);
+  if (life > INDEX_MAX_DAYS * 86_400_000) throw new Error(`the index's expires (${expires}) is more than ${INDEX_MAX_DAYS} days after generatedAt: hosts refuse it`);
   const base = baseUrl.replace(/\/+$/, '');
   const packages = [];
   for (const name of Object.keys(published).sort()) {
@@ -85,7 +89,7 @@ export function buildIndex({ published, sources, revoked, generatedAt, expires, 
   return {
     schema: 2,
     generatedAt,
-    ...(expires !== undefined ? { expires } : {}),
+    expires,
     publisher: PUBLISHER,
     url: `${base}/index.json`,
     packages,

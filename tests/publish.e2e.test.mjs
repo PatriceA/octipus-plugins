@@ -73,6 +73,8 @@ test('publishes a first version end to end: build, sign, finish', async () => {
   assert.equal(Date.parse(index.expires) - Date.parse(index.generatedAt), 30 * 86_400_000);
   assert.ok(JSON.parse(readFileSync(join(r.out, 'keys.json'), 'utf8')).expires);
   await assert.rejects(publishBuild(buildOpts({ noPreviousIndex: true, indexExpiresDays: 0 })), /--index-expires-days/);
+  // Review finding 7: hosts accept at most 45 days.
+  await assert.rejects(publishBuild(buildOpts({ noPreviousIndex: true, indexExpiresDays: 46 })), /over the 45 days/);
   const entry = index.packages[0];
   assert.equal(entry.url, 'https://plugins.octipus.cc/dl/reader-1.0.0.tar.gz');
   assert.equal(entry.sha256, m.sha256(tarball));

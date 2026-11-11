@@ -14,7 +14,7 @@ this directory, or anywhere in this repository (`*.key` is ignored).
 Served at `https://plugins.octipus.cc/keys.json` with `keys.json.sig`:
 
 ```json
-{ "schema": 1, "version": 3, "generatedAt": "2026-11-10T12:00:00Z", "expires": "2027-05-09T12:00:00Z",
+{ "schema": 1, "version": 3, "generatedAt": "2026-11-10T12:00:00Z", "expires": "2027-01-09T12:00:00Z",
   "signingKeys": [{ "keyId": "ed25519:<64 hex>", "publicKey": "-----BEGIN PUBLIC KEY-----…", "notAfter": "2027-12-31T00:00:00Z" }],
   "revokedKeys": [{ "keyId": "ed25519:<64 hex>", "reason": "…" }] }
 ```
@@ -39,19 +39,16 @@ node scripts/keys.mjs verify release-keys/keys.json
 version 1 when there is no live keys.json yet; `--previous <file|url>`
 replaces the live one.
 
-`expires` is `generatedAt` + 180 days (`--expires-days <n>`). A host
-refuses an expired `keys.json`, and with it every index and package of the
-marketplace, so the root key holder signs and deploys a new one before
-then (version + 1, nothing else need change). Nothing reminds you: put it in
-your calendar when you sign. `publish build` warns when `keys.json` expires
-before the index it is building.
-
-Octipus bf9551be (`OCTIPUS_REF`) does not know `expires` in `keys.json` yet
-(its host reads the file with a strict schema and refuses unknown fields),
-while it already ignores an index's `expires`. Until Octipus accepts the
-field, a `keys.json` with it is refused by those hosts: sign with
-`--no-expires` to leave it out. It is on by default because the host change
-that refuses an expired file is coming.
+`expires` is required (Octipus refuses a `keys.json` without it, or more
+than 90 days after `generatedAt`): `generatedAt` + 60 days by default
+(`--expires-days <n>`, at most 90; more is refused here). A host refuses an
+expired `keys.json`, and with it every index and package of the
+marketplace, so the root key holder **renews it before it is 60 days old**:
+signs and deploys a new one (version + 1, nothing else need change).
+Nothing reminds you: put it in your calendar when you sign. `publish build`
+warns when `keys.json` expires before the index it is building. The index
+itself is republished at least weekly (hosts warn after 7 days; see the
+[README](../README.md)).
 
 ## What changing this directory changes
 

@@ -29,7 +29,8 @@
 //     and recorded signature (its sha256 must be the signed index's).
 //  6. The index v2 template (each new tarball's sha256 and key id left null:
 //     they exist only once the package is signed) and release-plan.json.
-//     The index expires generatedAt + 30 days (--index-expires-days): hosts
+//     The index expires generatedAt + 30 days (--index-expires-days, at most
+//     45: Octipus requires `expires` and refuses a longer life): hosts
 //     refuse an expired index and warn admins once the last one they
 //     accepted is older than 7 days, so publish again (even with nothing
 //     new) at least weekly, and always before it expires. A reminder is the
@@ -55,14 +56,14 @@ import { readFileUnder, readRegularFile, SafeDir } from './lib/safe-fs.mjs';
 import { compareSemver, maxSemver } from './lib/semver.mjs';
 import { serializeStats, validateStats } from './lib/stats.mjs';
 import { TEXT_LIMITS } from './lib/text.mjs';
-import { checkPlan, LIVE_INDEX, LIVE_KEYS, readSource, sha256Hex, verifyKeysJson } from './sign.mjs';
+import { checkPlan, expiresProblem, INDEX_MAX_DAYS, LIVE_INDEX, LIVE_KEYS, readSource, sha256Hex, verifyKeysJson } from './sign.mjs';
 import { repoRootPubs } from './keys.mjs';
 
 const SIGNATURE_FILE = 'octipus-plugin.sig';
 const RELEASE_MARKER = '.octipus-plugins-release';
 const DIST_MARKER = '.octipus-plugins-dist';
 export const DEFAULT_GITHUB_REPO = 'PatriceA/octipus-plugins';
-/** How long a signed index is valid by default (days). */
+/** How long a signed index is valid by default (days); hosts accept at most INDEX_MAX_DAYS (45). */
 export const INDEX_EXPIRES_DAYS = 30;
 const DAY_MS = 86_400_000;
 
@@ -234,7 +235,8 @@ export async function publishBuild(opts) {
     fetch = true, baseUrl = BASE_URL, now = new Date(), indexExpiresDays = INDEX_EXPIRES_DAYS, log = (m) => process.stderr.write(`${m}\n`),
   } = opts;
   const warnings = [];
-  if (!Number.isInteger(indexExpiresDays) || indexExpiresDays < 1 || indexExpiresDays > 365) stop(`--index-expires-days must be a whole number of days from 1 to 365, not ${JSON.stringify(indexExpiresDays)}`);
+  if (!Number.isInteger(indexExpiresDays) || indexExpiresDays < 1) stop(`--index-expires-days must be a whole number of days from 1 to ${INDEX_MAX_DAYS}, not ${JSON.stringify(indexExpiresDays)}`);
+  if (indexExpiresDays > INDEX_MAX_DAYS) stop(`--index-expires-days ${indexExpiresDays} is over the ${INDEX_MAX_DAYS} days hosts accept for an index`);
   const indexExpires = iso(new Date(now.getTime() + indexExpiresDays * DAY_MS));
 
   // 0. Node and the CLI. The tarball's deflate stream comes from Node's
@@ -263,8 +265,8 @@ export async function publishBuild(opts) {
     if (!rootPubs.length) stop('no root public key: keys/root/*.pub, or --root-pub');
     const keys = await loadKeys(keysFrom, rootPubs, { now });
     if (!keys.endorsed.length) stop('keys.json endorses no signing key');
-    log(`keys.json v${keys.doc.version} (root ${keys.rootKeyId}${keys.doc.expires ? `, expires ${keys.doc.expires}` : ''}); endorsed: ${keys.endorsed.map((k) => k.keyId).join(', ')}`);
-    if (keys.doc.expires && Date.parse(keys.doc.expires) < Date.parse(indexExpires)) {
+    log(`keys.json v${keys.doc.version} (root ${keys.rootKeyId}, expires ${keys.doc.expires}); endorsed: ${keys.endorsed.map((k) => k.keyId).join(', ')}`);
+    if (Date.parse(keys.doc.expires) < Date.parse(indexExpires)) {
       warnings.push(`keys.json expires at ${keys.doc.expires}, before this index (${indexExpires}): hosts refuse the marketplace from then on. Sign and deploy a new keys.json first (node scripts/keys.mjs sign).`);
     }
     const pubFiles = keys.endorsed.map((k, i) => work.write(`endorsed-${i}.pub`, k.publicKey));
@@ -474,7 +476,9 @@ export async function publishFinish(opts) {
     const v = await cli.verifyIndex(vf, pubs);
     if (!v.valid) stop(`signed/index.json does not verify with an endorsed key: ${v.error ?? 'invalid'}`);
     const index = parseJson(indexBytes.toString('utf8'), 'signed/index.json');
-    if (index.expires !== undefined && !(Date.parse(index.expires) > now.getTime())) stop(`signed/index.json expired at ${index.expires}: hosts would refuse it; publish again (build, sign, finish)`);
+    const ep = expiresProblem(index, INDEX_MAX_DAYS);
+    if (ep) stop(`signed/index.json: ${ep}`);
+    if (!(Date.parse(index.expires) > now.getTime())) stop(`signed/index.json expired at ${index.expires}: hosts would refuse it; publish again (build, sign, finish)`);
 
     // published.json with the signed records, which must equal the signed index.
     const published = readPublished(src.root);
@@ -542,8 +546,9 @@ export async function publishFinish(opts) {
       `       rsync -a --delete --filter 'P stats.json' ${dist.root}/ <server>:/var/www/plugins.octipus.cc/`,
       '     (serve _headers as the site\'s headers, or the nginx config in README.md).',
       names.length ? `  2. Commit and push published.json: git commit -m "Publish ${names.join(', ')}" published.json` : '  2. published.json is unchanged: nothing to commit.',
-      ...(index.expires ? [`  3. The index expires at ${index.expires}${keys.doc.expires ? ` and keys.json at ${keys.doc.expires}` : ''}: hosts refuse them after that, and warn`,
-        '     admins once the index they hold is 7 days old. Publish again within a week, and set yourself a reminder: nothing here does.'] : []),
+      `  3. The index expires at ${index.expires} and keys.json at ${keys.doc.expires}: hosts refuse them after that, and warn`,
+      '     admins once the index they hold is 7 days old. Publish again within a week, renew keys.json before it is 60 days old,',
+      '     and set yourself reminders: nothing here does.',
     ].join('\n'));
     return { commit, outDir: dist.root, index, published: next, newVersions: signed.records.filter((r) => r.kind === 'new').map((r) => ({ name: r.name, version: r.version })) };
   } finally {

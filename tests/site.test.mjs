@@ -52,6 +52,7 @@ test('with fixture data', () => {
     sources: { reader: { listing: JSON.parse(readFileSync(join(fixture, 'marketplace.json'), 'utf8')), readme: readFileSync(join(fixture, 'README.md'), 'utf8'), changelog: readFileSync(join(fixture, 'CHANGELOG.md'), 'utf8') } },
     revoked: { packages: [{ name: 'reader', version: '0.9.0', reason: 'a test revocation' }], keys: [] },
     generatedAt: '2026-11-10T12:00:00Z',
+    expires: '2026-12-10T12:00:00Z',
   });
   const indexFile = join(tmp, 'index.json');
   writeFileSync(indexFile, serializeIndex(index));
@@ -99,6 +100,7 @@ test('H3: an index description is text, and the CSP allows only the source scrip
     sources: { evil: { listing: { title: 'Evil plugin', summary: 'An evil plugin here', category: 'utilities', license: 'MIT', author: { name: 'x' } }, readme: '<script>x</script>', changelog: '## 1.0.0\n' } },
     revoked: { packages: [], keys: [] },
     generatedAt: '2026-11-10T00:00:00Z',
+    expires: '2026-12-10T00:00:00Z',
   });
   const indexFile = join(tmp, 'evil-index.json');
   writeFileSync(indexFile, serializeIndex(index));

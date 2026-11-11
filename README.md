@@ -277,14 +277,16 @@ Once:
 5. **Deploy** `dist/` as it is (`rsync -a --delete --filter 'P stats.json'
    dist/ <server>:/var/www/plugins.octipus.cc/`), and **commit and push
    `published.json`**.
-6. **Republish before it expires.** The index expires 30 days after
-   `build` (`--index-expires-days`), and hosts warn their admins once the
-   index they hold is a week old; `keys.json` expires 180 days after the
-   root key signs it. An expired one makes the whole marketplace
-   unavailable to hosts. Run the release again at least weekly, even with
-   nothing new, and root-sign a new `keys.json` before it expires (`build`
-   warns when it expires before the index would). Scheduling that is the
-   key holder's job: set a reminder.
+6. **Republish at least weekly.** Octipus requires `expires` on the index
+   and on `keys.json`. The index expires 30 days after `build`
+   (`--index-expires-days`, at most 45: hosts refuse a longer life), and
+   hosts warn their admins once the index they hold is more than 7 days
+   old, so run the release again **at least weekly**, even with nothing
+   new. `keys.json` expires 60 days after the root key signs it
+   (`--expires-days`, at most 90): **renew it before it is 60 days old**
+   (`build` warns when it expires before the index would). An expired one
+   makes the whole marketplace unavailable to hosts. Scheduling both is the
+   key holder's job: set reminders.
 
 ### Rotating a signing key
 
@@ -428,12 +430,13 @@ exact bytes. It is backward compatible: a v1 host reads `name`, `version`,
   `prompt` a boolean) outright. `scripts/lib/permissions.mjs` checks the
   exact form wherever an index entry or a `published.json` record is made
   or read.
-- `expires` is `generatedAt` + 30 days (`publish build
-  --index-expires-days <n>`). A host refuses an expired index and warns its
-  admins once the last index it accepted is more than 7 days old: the key
-  holder publishes again (build, sign, finish; a release with nothing new
-  only re-signs the index) at least weekly and always before `expires`.
-  Nothing here schedules that: set yourself a reminder.
+- `expires` is required: `generatedAt` + 30 days (`publish build
+  --index-expires-days <n>`, at most 45; Octipus refuses an index without
+  `expires` or with a longer life). A host refuses an expired index and
+  warns its admins once the last index it accepted is more than 7 days old:
+  the key holder publishes again (build, sign, finish; a release with
+  nothing new only re-signs the index) at least weekly and always before
+  `expires`. Nothing here schedules that: set yourself a reminder.
 - Every published version is listed, newest first per plugin; `readme` and
   `changelog` ride on the newest entry of each plugin only (older entries
   have `null`), to keep the index far below a host's 1 MB cap.

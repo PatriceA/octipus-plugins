@@ -53,6 +53,20 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const KEY_ID = /^ed25519:[0-9a-f]{64}$/;
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const DAY_MS = 86_400_000;
+/** The longest life hosts accept (days after generatedAt): Octipus requires `expires` on both. */
+export const INDEX_MAX_DAYS = 45;
+export const KEYS_MAX_DAYS = 90;
+
+/** Why `doc.expires` is not a time after `doc.generatedAt` and at most `maxDays` after it, or null. */
+export function expiresProblem(doc, maxDays) {
+  if (typeof doc?.expires !== 'string' || !ISO_Z.test(doc.expires)) return 'expires is required: an ISO time (…Z)';
+  if (typeof doc.generatedAt !== 'string' || !ISO_Z.test(doc.generatedAt)) return 'generatedAt must be an ISO time (…Z)';
+  const life = Date.parse(doc.expires) - Date.parse(doc.generatedAt);
+  if (!(life > 0)) return 'expires must be after generatedAt';
+  if (life > maxDays * DAY_MS) return `expires is more than ${maxDays} days after generatedAt: hosts refuse it`;
+  return null;
+}
 
 export class SignError extends Error {}
 const stop = (m) => { throw new SignError(m); };
@@ -145,11 +159,12 @@ export const keysMessage = (bytes) => Buffer.from(`${KEYS_PREFIX}sha256:${sha256
 /** Check a parsed keys.json strictly; returns it. */
 export function checkKeysDoc(doc) {
   const keys = isObj(doc) ? Object.keys(doc).sort().join(',') : '';
-  if (keys !== 'generatedAt,revokedKeys,schema,signingKeys,version' && keys !== 'expires,generatedAt,revokedKeys,schema,signingKeys,version') stop('keys.json must have exactly schema, version, generatedAt, expires (optional), signingKeys and revokedKeys');
+  if (keys !== 'expires,generatedAt,revokedKeys,schema,signingKeys,version') stop('keys.json must have exactly schema, version, generatedAt, expires, signingKeys and revokedKeys');
   if (doc.schema !== 1) stop('keys.json: schema must be 1');
   if (!Number.isSafeInteger(doc.version) || doc.version < 1) stop('keys.json: version must be a positive integer');
   if (typeof doc.generatedAt !== 'string' || !ISO_Z.test(doc.generatedAt)) stop('keys.json: generatedAt must be an ISO time (…Z)');
-  if ('expires' in doc && (typeof doc.expires !== 'string' || !ISO_Z.test(doc.expires) || !(Date.parse(doc.expires) > Date.parse(doc.generatedAt)))) stop('keys.json: expires must be an ISO time (…Z) after generatedAt');
+  const ep = expiresProblem(doc, KEYS_MAX_DAYS);
+  if (ep) stop(`keys.json: ${ep}`);
   if (!Array.isArray(doc.signingKeys) || !Array.isArray(doc.revokedKeys)) stop('keys.json: signingKeys and revokedKeys must be lists');
   const ids = new Set();
   for (const k of doc.signingKeys) {
@@ -189,7 +204,7 @@ export function verifyKeysJson(bytes, sigText, rootPems, { now = new Date() } = 
   let doc;
   try { doc = JSON.parse(bytes.toString('utf8')); } catch { stop('keys.json is not JSON'); }
   checkKeysDoc(doc);
-  if (doc.expires && Date.parse(doc.expires) <= now.getTime()) stop(`keys.json v${doc.version} expired at ${doc.expires}: hosts refuse it. Sign a new one with the root key (node scripts/keys.mjs sign) and deploy it.`);
+  if (Date.parse(doc.expires) <= now.getTime()) stop(`keys.json v${doc.version} expired at ${doc.expires}: hosts refuse it. Sign a new one with the root key (node scripts/keys.mjs sign) and deploy it.`);
   const endorsed = doc.signingKeys.filter((k) => !k.notAfter || Date.parse(k.notAfter) > now.getTime()).map((k) => ({ keyId: k.keyId, publicKey: k.publicKey }));
   return { doc, rootKeyId: root.keyId, endorsed };
 }
@@ -495,8 +510,9 @@ export async function sign(opts) {
     if (sha256Hex(tBytes) !== plan.index.sha256) stop('the index template is not the one the plan names');
     const template = JSON.parse(tBytes.toString('utf8'));
     if (!isObj(template) || template.schema !== 2 || !Array.isArray(template.packages) || !Array.isArray(template.revoked)) stop('the index template is not an index v2');
-    if ('expires' in template && (typeof template.expires !== 'string' || !ISO_Z.test(template.expires) || !(Date.parse(template.expires) > Date.parse(template.generatedAt)))) stop('the index template: expires must be an ISO time (…Z) after generatedAt');
-    if (template.expires) log(`The index expires at ${template.expires}: hosts refuse it after that. Publish again before then (a reminder is yours to set).`);
+    const ep = expiresProblem(template, INDEX_MAX_DAYS);
+    if (ep) stop(`the index template: ${ep}`);
+    log(`The index expires at ${template.expires}: hosts refuse it after that, and warn after 7 days. Publish again within a week (a reminder is yours to set).`);
 
     // 5. Each package.
     const out = join(planDir, 'signed');
