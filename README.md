@@ -198,12 +198,16 @@ Once:
    --passphrase-file -`). Keep both roots offline.
 2. Put the public halves in `keys/root/` and `keys/signing/`, name the
    signing key in `keys/endorsements.json`, and merge that (code owners).
-3. In the root key session: `node scripts/keys.mjs sign --first --key
-   <root.key> --passphrase-file -`, and deploy `release-keys/keys.json` and
-   `keys.json.sig` to the site.
-4. Keep a copy of the root public key(s) on the publishing machine,
-   outside the repository: `sign.mjs` takes the root from there
-   (`--root-pub`), never from `keys/`, so a pull request cannot choose it.
+3. Keep a copy of the root public key(s) on the root key and publishing
+   machines, outside the repository: `keys.mjs` and `sign.mjs` take the
+   root from there (`--root-pub`, required), never from `keys/`, so a pull
+   request cannot choose it.
+4. In the root key session, from a clean `main` equal to `origin/main`:
+   `node scripts/keys.mjs sign --first --root-pub <root.pub> --key
+   <root.key>` (with `node`: it refuses npm). It shows what keys.json
+   endorses and revokes against the published one, has you type each added
+   key id, then signs through the pinned CLI. Deploy
+   `release-keys/keys.json` and `keys.json.sig` to the site.
 
 ### Every release
 
@@ -300,8 +304,10 @@ Once:
 
 1. Make the new signing key, add it to `keys/signing/` and
    `keys/endorsements.json` beside the old one, and merge.
-2. Root session: `node scripts/keys.mjs sign --key <root.key>
-   --passphrase-file -` (version + 1, both keys endorsed); deploy keys.json.
+2. Root session: `node scripts/keys.mjs sign --root-pub <root.pub> --key
+   <root.key>` (version + 1, both keys endorsed; type the new key id when
+   asked, after checking it against your own record of the new key); deploy
+   keys.json.
 3. `npm run publish -- build --resign-to <new key id>`; `sign.mjs` with the
    new key re-signs every live version (same content hash, rebuilt
    reproducibly; revoked versions keep their old signature); finish; deploy.

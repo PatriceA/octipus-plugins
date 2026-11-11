@@ -29,7 +29,8 @@ plugin. The code owner reviews it line by line, and:
       `scripts/lib/safe-fs.mjs`, no lifecycle script, no new action that is
       not pinned to a commit, no write token in a job that runs pull request
       code. `scripts/sign.mjs`: still Node built-ins only, still starting only
-      git and the pinned CLI.
+      git, gh and the pinned CLI; `scripts/keys.mjs`: still Node built-ins
+      and sign.mjs only, starting only git and the pinned CLI.
 - [ ] `OCTIPUS_REF`: a 40-hex commit on PatriceA/octipus `main` (publish
       refuses one that is not), and the Octipus diff since the old one read
       for the plugin CLI.

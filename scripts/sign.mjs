@@ -103,7 +103,7 @@ export function safeRel(p, what = 'path') {
   return p;
 }
 
-function inside(child, parent) {
+export function inside(child, parent) {
   const rel = relative(parent, child);
   return rel === '' || (!isAbsolute(rel) && rel.split(sep)[0] !== '..');
 }
@@ -559,7 +559,7 @@ export function anchorCheck(prev, next, plan, signingKeyId) {
 
 // ---------------------------------------------------------------- the terminal
 
-function askLine(prompt, { hidden = false } = {}) {
+export function askLine(prompt, { hidden = false } = {}) {
   return new Promise((ok, fail) => {
     if (!process.stdin.isTTY) { fail(new SignError(`no terminal to ask: ${prompt.trim()}`)); return; }
     const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -578,6 +578,32 @@ async function readStdin() {
 const loud = (lines) => ['', '!'.repeat(78), ...lines.map((l) => `!!  ${l}`), '!'.repeat(78), ''].join('\n');
 
 // ---------------------------------------------------------------- the session
+
+/** `--key`: outside the repository, an encrypted PEM, readable by its owner only. Returns its real path. */
+export function checkPrivateKey(key, repo, what = 'key') {
+  if (!key) stop(`--key <${what}> is required`);
+  const keyPath = realpathSync(resolve(key));
+  if (inside(keyPath, realpathSync(repo))) stop(`--key ${key} is inside the repository`);
+  const pem = readRegular(keyPath, 64 * 1024).toString('utf8');
+  if (!pem.includes('-----BEGIN ENCRYPTED PRIVATE KEY-----')) stop(`--key ${key} is not an encrypted key (octi plugin keygen --passphrase-file -)`);
+  if ((lstatSync(keyPath).mode & 0o077) !== 0) stop(`--key ${key} is readable by other users: chmod 600 it`);
+  return keyPath;
+}
+
+/** `--root-pub`: the root public keys the key holder holds, outside the repository (PEM texts). */
+export function readRootPubs(rootPubs, repo) {
+  if (!rootPubs?.length) stop('--root-pub <file> is required: the root public key(s) you hold, outside the repository');
+  return rootPubs.map((p) => {
+    const real = realpathSync(resolve(p));
+    if (inside(real, realpathSync(repo))) stop(`--root-pub ${p} is inside the repository: use your own copy (a repository change must not choose the root)`);
+    return readRegular(real, 64 * 1024).toString('utf8');
+  });
+}
+
+/** Refuse to run under npm (a lifecycle script of package.json, an .npmrc of the repository). */
+export function refuseNpm(env = process.env) {
+  if (env.npm_lifecycle_event !== undefined || env.npm_execpath !== undefined) stop('run this with node, not through npm');
+}
 
 /** The newest commit published.json at HEAD names (the last publish), or null. */
 function lastPublishCommit(repo) {
@@ -609,20 +635,10 @@ export async function sign(opts) {
   if (lastPublishCommit(repo) !== plan.lastPublishCommit) stop('the plan names another last publish commit than published.json does');
 
   // The private key: outside the repository, encrypted, private.
-  if (!key) stop('--key <signing key> is required');
-  const keyPath = realpathSync(resolve(key));
-  if (inside(keyPath, realpathSync(repo))) stop(`--key ${key} is inside the repository`);
-  const pem = readRegular(keyPath, 64 * 1024).toString('utf8');
-  if (!pem.includes('-----BEGIN ENCRYPTED PRIVATE KEY-----')) stop(`--key ${key} is not an encrypted key (octi plugin keygen --passphrase-file -)`);
-  if ((lstatSync(keyPath).mode & 0o077) !== 0) stop(`--key ${key} is readable by other users: chmod 600 it`);
+  const keyPath = checkPrivateKey(key, repo, 'signing key');
 
   // 2. keys.json, with the root keys the key holder holds.
-  if (!rootPubs.length) stop('--root-pub <file> is required: the root public key(s) you hold, outside the repository');
-  const roots = rootPubs.map((p) => {
-    const real = realpathSync(resolve(p));
-    if (inside(real, realpathSync(repo))) stop(`--root-pub ${p} is inside the repository: use your own copy (a repository change must not choose the root)`);
-    return readRegular(real, 64 * 1024).toString('utf8');
-  });
+  const roots = readRootPubs(rootPubs, repo);
   const keysBytes = await readSource(keysFrom);
   const keys = verifyKeysJson(keysBytes, (await readSource(`${keysFrom}.sig`, 4096)).toString('utf8'), roots, { now });
   if (sha256Hex(keysBytes) !== plan.keys.sha256) stop('keys.json is not the one the plan was built with');
@@ -813,6 +829,7 @@ async function main() {
       yes: { type: 'boolean' }, 'keys-from': { type: 'string' }, 'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'previous-keys-from': { type: 'string' },
     },
   });
+  refuseNpm();
   if (!values.plan) stop('--plan <release/release-plan.json> is required');
   await sign({
     planFile: values.plan, key: values.key, rootPubs: values['root-pub'] ?? [], passphraseFile: values['passphrase-file'], yes: values.yes === true,

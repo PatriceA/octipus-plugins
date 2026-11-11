@@ -56,8 +56,7 @@ import { readFileUnder, readRegularFile, SafeDir } from './lib/safe-fs.mjs';
 import { compareSemver, maxSemver } from './lib/semver.mjs';
 import { serializeStats, validateStats } from './lib/stats.mjs';
 import { TEXT_LIMITS } from './lib/text.mjs';
-import { checkPlan, expiresProblem, INDEX_MAX_DAYS, LIVE_INDEX, LIVE_KEYS, readSource, sha256Hex, verifyKeysJson } from './sign.mjs';
-import { repoRootPubs } from './keys.mjs';
+import { checkPlan, expiresProblem, readRegular, safeRel, INDEX_MAX_DAYS, LIVE_INDEX, LIVE_KEYS, readSource, sha256Hex, verifyKeysJson } from './sign.mjs';
 
 const SIGNATURE_FILE = 'octipus-plugin.sig';
 const RELEASE_MARKER = '.octipus-plugins-release';
@@ -66,6 +65,17 @@ export const DEFAULT_GITHUB_REPO = 'PatriceA/octipus-plugins';
 /** How long a signed index is valid by default (days); hosts accept at most INDEX_MAX_DAYS (45). */
 export const INDEX_EXPIRES_DAYS = 30;
 const DAY_MS = 86_400_000;
+
+/**
+ * The root public keys in keys/root/ (PEM texts): build's default, a check
+ * without a key. sign.mjs and keys.mjs never use them: they take the root
+ * keys the key holder holds (--root-pub, outside the repository).
+ */
+export function repoRootPubs(repo = REPO_ROOT) {
+  let names;
+  try { names = readdirSync(join(repo, 'keys', 'root')); } catch { return []; }
+  return names.filter((n) => n.endsWith('.pub')).sort().map((n) => readRegular(join(repo, 'keys', 'root', safeRel(n)), 64 * 1024).toString('utf8'));
+}
 
 export class PublishError extends Error {}
 const stop = (msg) => { throw new PublishError(msg); };

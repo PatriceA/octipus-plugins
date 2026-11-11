@@ -26,16 +26,24 @@ a root key. `version` only goes up; `revokedKeys` only grows (a host keeps a
 revocation even if a later file drops it, and `scripts/keys.mjs` refuses to
 drop one).
 
-Build and sign it in the root key session, with `node`, never `npm`:
+Build and sign it in the root key session, with `node` (it refuses `npm`),
+from a clean `main` equal to `origin/main`. The root public keys always come
+from `--root-pub`: your own copy, outside the repository, never `keys/root/`.
 
 ```sh
-node scripts/keys.mjs build                 # keys.json from this directory, after the live one (no key)
-node scripts/keys.mjs sign --key ~/offline/root.key --passphrase-file -   # → release-keys/keys.json(.sig)
-node scripts/keys.mjs verify release-keys/keys.json
+node scripts/keys.mjs build  --root-pub ~/offline/root.pub        # keys.json from this directory, after the live one (no key)
+node scripts/keys.mjs sign   --root-pub ~/offline/root.pub --key ~/offline/root.key   # → release-keys/keys.json(.sig)
+node scripts/keys.mjs verify --root-pub ~/offline/root.pub release-keys/keys.json
 ```
 
-`sign` signs only through the pinned Octipus CLI (`octi plugin sign-keys`).
-`--first` makes
+`sign` checks the pinned Octipus CLI as `sign.mjs` does and that the root
+key is encrypted, verifies the published keys.json with your root keys,
+shows the signing keys added and removed, `notAfter` changes and the
+revocations added against it, has you **type each added key id** (check it
+against your own record of the key, not against this repository) and
+confirm, and signs only through the pinned CLI (`octi plugin sign-keys`).
+The passphrase is asked on the terminal, or read from `--passphrase-file
+<path>` (not `-`: the confirmations need the terminal). `--first` makes
 version 1 when there is no live keys.json yet; `--previous <file|url>`
 replaces the live one.
 

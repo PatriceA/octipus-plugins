@@ -10,7 +10,6 @@
   "scripts": {
     "check": "node scripts/check.mjs",
     "publish": "node scripts/publish.mjs",
-    "keys": "node scripts/keys.mjs",
     "stats": "node scripts/stats.mjs",
     "build:site": "astro build --root site",
     "dev:site": "astro dev --root site",
