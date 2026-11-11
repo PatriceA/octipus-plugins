@@ -1,7 +1,7 @@
 # The Octipus commit the scripts and CI run the `octi plugin` CLI from
 # (PatriceA/octipus). The first line that is not a comment is the ref, a full
-# 40-hex commit on Octipus main. Pinned to the merge of #493 (the marketplace
-# host side: sign-keys, verify-keys, unpack, the permissions shape with
-# secrets and settings, mandatory expiry). Move it forward deliberately, and
+# 40-hex commit on Octipus main. Pinned to the merge of #495 (the per-user
+# plugin store: the permissions shape with secrets, settings and store, and
+# the store:read / store:write scopes). Move it forward deliberately, and
 # re-run the tests when you do.
-49e577f302cca6b3a29d6be8491f537d8d8a852c
+f2010c6ebb9d6f3d073a232ed1dfad45fadb42ff
