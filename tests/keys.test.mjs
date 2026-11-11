@@ -134,7 +134,10 @@ test('finding 6: keys sign shows the diff, has each added key id typed, and refu
     await assert.rejects(session({ rootPubs: [] }).p, /--root-pub <file> is required/);
     await assert.rejects(session({ rootPubs: [join(m.repo, 'keys', 'root', 'root.pub')] }).p, /--root-pub .* is inside the repository/);
     // Each added key id is typed.
-    const wrong = session({ answers: [added.replace(/.$/, '0'), 'sign keys.json v2'] });
+    // Change the last hex digit (never to itself: a random id can already end in 0).
+    const mistyped = added.slice(0, -1) + (added.endsWith('0') ? '1' : '0');
+    assert.notEqual(mistyped, added);
+    const wrong = session({ answers: [mistyped, 'sign keys.json v2'] });
     await assert.rejects(wrong.p, /not confirmed: .* is not ed25519:/);
     assert.match(wrong.logs.join('\n'), new RegExp(`Signing keys ADDED \\(1\\):\\n  \\+ ${added} \\(keys/signing/second\\.pub\\), notAfter 2027-12-31T00:00:00Z`));
     assert.match(wrong.logs.join('\n'), /Signing keys REMOVED \(0\)/);
