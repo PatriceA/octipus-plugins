@@ -16,24 +16,20 @@
 //     pages[{path,title,entry}] (by path), ui{dir,sha256}|null (null without pages),
 //     trustedInput, maxProtection }
 //
-// Octipus is adding `secrets` and `settings` (sorted lists of names) to this
-// object. Both are optional here: accepted (and diffed) when present, in
-// whatever position the CLI prints them, so this works with OCTIPUS_REF
-// before and after that change. A command's `input` is accepted the same way
-// (optional, as a schedule's).
-//
-// Octipus is also adding the per-user store (docs/PLUGIN-PACKAGES.md#store):
-// `store: { quotaBytes } | null`, right after `settings`, so the newer CLI
-// prints
+// with `secrets` and `settings` (sorted lists of names) after `network`, and
+// the per-user store (docs/PLUGIN-PACKAGES.md#store) right after `settings`:
 //
 //   { name, version, apiVersion, runtime, host, network, secrets, settings,
 //     store, tools, effects, contributions, pages, ui, trustedInput, maxProtection }
 //
-// (`{}` in the manifest prints { quotaBytes: 5242880 }, no store prints
-// null). It is optional here too: accepted when present, and only right
-// after `settings`; a listing without it reads as null, as the host's index
-// schema reads it. The store goes with the host scopes `store:read` and/or
-// `store:write` (a write scope: for write and external tools only).
+// `store` is `{ quotaBytes } | null` (`{}` in the manifest prints
+// { quotaBytes: 5242880 }, no store prints null) and goes with the host
+// scopes `store:read` and/or `store:write` (a write scope: for write and
+// external tools only). All three are required, as the pinned OCTIPUS_REF
+// prints them; a command's `input` is optional, as a schedule's.
+//
+// The diff still reads a listing without them as none, so an index entry
+// from before them compares as the host compares it.
 //
 // An index lists it as it is: the host recomputes it from the downloaded
 // package and compares the whole object (deep equality), and refuses the old
@@ -46,16 +42,10 @@
 export const EFFECT_RANK = { read: 0, write: 1, external: 2 };
 
 /** The keys of a permissions object, in the CLI's order. */
-export const PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'host', 'network', 'tools', 'effects', 'contributions', 'pages', 'ui', 'trustedInput', 'maxProtection'];
+export const PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'host', 'network', 'secrets', 'settings', 'store', 'tools', 'effects', 'contributions', 'pages', 'ui', 'trustedInput', 'maxProtection'];
 
-/** Keys a newer CLI adds (sorted name lists); optional, anywhere among the others. */
-export const OPTIONAL_PERMISSION_KEYS = ['secrets', 'settings'];
-
-/** The per-user store: optional, and only right after `settings` (`{ quotaBytes } | null`). */
-export const STORE_KEY = 'store';
-
-/** The keys as the CLI with the per-user store prints them, in its order. */
-export const STORE_PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'host', 'network', 'secrets', 'settings', 'store', 'tools', 'effects', 'contributions', 'pages', 'ui', 'trustedInput', 'maxProtection'];
+/** The sorted name lists among them. */
+const NAME_LIST_KEYS = ['secrets', 'settings'];
 
 /** The store's quota per user (Octipus's PLUGIN_STORE_*_QUOTA_BYTES): default 5 MB, 1 KB to 20 MB. */
 export const STORE_DEFAULT_QUOTA_BYTES = 5 * 1024 * 1024;
@@ -111,12 +101,10 @@ export function permissionsProblems(p) {
     return bad('permissions are in the old shape (pages a count, prompt or context a boolean), which hosts refuse: they come from an Octipus CLI older than the pinned OCTIPUS_REF');
   }
   const keys = Object.keys(p);
-  const required = keys.filter((k) => !OPTIONAL_PERMISSION_KEYS.includes(k) && k !== STORE_KEY);
-  if (required.join(',') !== PERMISSION_KEYS.join(',')) return bad(`permissions must have exactly ${PERMISSION_KEYS.join(', ')}, in that order, and optionally ${OPTIONAL_PERMISSION_KEYS.join(' and ')}, and ${STORE_KEY} right after settings (has ${keys.join(', ')})`);
-  if (STORE_KEY in p && keys[keys.indexOf(STORE_KEY) - 1] !== 'settings') return bad(`permissions.store must come right after settings, as the CLI prints it (has ${keys.join(', ')})`);
+  if (keys.join(',') !== PERMISSION_KEYS.join(',')) return bad(`permissions must have exactly ${PERMISSION_KEYS.join(', ')}, in that order, as the pinned CLI prints them (has ${keys.join(', ')})`);
   const text = (v, max) => typeof v === 'string' && v.length <= max && !BAD_TEXT.test(v);
   const list = (v, max) => Array.isArray(v) && v.length <= max;
-  for (const k of OPTIONAL_PERMISSION_KEYS) if (k in p && !(list(p[k], 100) && p[k].every((x) => text(x, 100) && x.length > 0))) out.push(`permissions.${k}`);
+  for (const k of NAME_LIST_KEYS) if (!(list(p[k], 100) && p[k].every((x) => text(x, 100) && x.length > 0))) out.push(`permissions.${k}`);
   const roles = (r) => r === undefined || (list(r, 30) && r.every((x) => text(x, 64)));
   if (typeof p.name !== 'string' || p.name.length > 50) out.push('permissions.name');
   if (typeof p.version !== 'string' || p.version.length > 100 || !SEMVER.test(p.version)) out.push('permissions.version');
@@ -140,7 +128,7 @@ export function permissionsProblems(p) {
   }
   if (!list(p.pages, 100) || !p.pages.every((x) => isObj(x) && text(x.path, 200) && text(x.title, 100) && text(x.entry, 300))) out.push('permissions.pages');
   if (p.ui !== null && !(isObj(p.ui) && text(p.ui.dir, 300) && typeof p.ui.sha256 === 'string' && HEX64.test(p.ui.sha256))) out.push('permissions.ui (null, or { dir, sha256 (64 lower-case hex) })');
-  if (STORE_KEY in p && p.store !== null && !(isObj(p.store) && Object.keys(p.store).join(',') === 'quotaBytes'
+  if (p.store !== null && !(isObj(p.store) && Object.keys(p.store).join(',') === 'quotaBytes'
     && Number.isSafeInteger(p.store.quotaBytes) && p.store.quotaBytes >= STORE_MIN_QUOTA_BYTES && p.store.quotaBytes <= STORE_MAX_QUOTA_BYTES)) {
     out.push(`permissions.store (null, or { quotaBytes: a whole number of bytes from ${STORE_MIN_QUOTA_BYTES} to ${STORE_MAX_QUOTA_BYTES} })`);
   }
@@ -148,7 +136,7 @@ export function permissionsProblems(p) {
   if (![1, 2, 3, 4].includes(p.maxProtection)) out.push('permissions.maxProtection');
   if (out.length) return out;
   // The CLI validates the manifest first: a store comes with a store scope, and a store scope with a store.
-  if (STORE_KEY in p && (p.store !== null) !== p.host.some((s) => STORE_SCOPES.includes(s))) {
+  if ((p.store !== null) !== p.host.some((s) => STORE_SCOPES.includes(s))) {
     out.push(p.store ? 'permissions.store without the host scope store:read or store:write' : 'permissions.host has a store scope but store is null');
   }
 
@@ -157,7 +145,7 @@ export function permissionsProblems(p) {
     const which = keys.filter((k) => JSON.stringify(canonical[k]) !== JSON.stringify(p[k]));
     out.push(`permissions are not in the CLI's exact form (${which.join(', ')}: key order, sorting, duplicates, the effect counts or ui)`);
   }
-  for (const [k, l] of [['host', p.host], ['network', p.network], ['tools', p.tools.map((t) => t.name)], ['commands', c.commands.map((x) => x.name)], ['schedules', c.schedules.map((x) => x.id)], ['pages', p.pages.map((x) => x.path)], ...OPTIONAL_PERMISSION_KEYS.filter((k) => k in p).map((k) => [k, p[k]])]) {
+  for (const [k, l] of [['host', p.host], ['network', p.network], ['tools', p.tools.map((t) => t.name)], ['commands', c.commands.map((x) => x.name)], ['schedules', c.schedules.map((x) => x.id)], ['pages', p.pages.map((x) => x.path)], ...NAME_LIST_KEYS.map((k) => [k, p[k]])]) {
     if (new Set(l).size !== l.length) out.push(`permissions: ${k} lists one twice`);
   }
   return out;
@@ -165,15 +153,13 @@ export function permissionsProblems(p) {
 
 /**
  * `p` rebuilt in the CLI's form (computePermissions): key order, sorted
- * lists, effects from the tools. `secrets` and `settings` (sorted) keep the
- * position `p` has them in: the CLI that adds them decides where. `store`
- * (checked to follow `settings`) is `{ quotaBytes }` or null.
+ * lists, effects from the tools; `store` is `{ quotaBytes }` or null.
  */
 function canonicalPermissions(p) {
   const base = canonicalBase(p);
   const value = (k) => {
-    if (OPTIONAL_PERMISSION_KEYS.includes(k)) return [...p[k]].sort(byCodeUnit);
-    if (k === STORE_KEY) return p.store ? { quotaBytes: p.store.quotaBytes } : null;
+    if (NAME_LIST_KEYS.includes(k)) return [...p[k]].sort(byCodeUnit);
+    if (k === 'store') return p.store ? { quotaBytes: p.store.quotaBytes } : null;
     return base[k];
   };
   return Object.fromEntries(Object.keys(p).map((k) => [k, value(k)]));

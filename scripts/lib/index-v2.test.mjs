@@ -50,16 +50,15 @@ test('an entry whose permissions are not the CLI\'s exact object, or not its own
 });
 
 // The per-user store: the entry carries the CLI's object as it is, with
-// `store` where the newer CLI prints it; an older record without it stays
-// as it was (the host reads it as null).
-test('store: carried exactly as the CLI prints it, next to records without it', () => {
+// `store` right after `settings`, a quota or null.
+test('store: carried exactly as the CLI prints it, next to records without one', () => {
   const stored = smallPermissions({ name: 'weekly-review', version: '1.1.0', host: ['store:read', 'tasks:read'], store: { quotaBytes: 1048576 } });
   const pub = { 'weekly-review': { '1.0.0': rec('1.0.0', '2026-11-01T00:00:00Z'), '1.1.0': { ...rec('1.1.0', '2026-11-08T00:00:00Z'), permissions: stored } } };
   const index = buildIndex({ published: pub, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' });
   const [latest, older] = index.packages;
   assert.equal(JSON.stringify(latest.permissions), JSON.stringify(stored));
   assert.deepEqual(Object.keys(latest.permissions).slice(5, 10), ['network', 'secrets', 'settings', 'store', 'tools']);
-  assert.ok(!('store' in older.permissions));
+  assert.equal(older.permissions.store, null);
   const bad = (permissions) => () => buildIndex({ published: { 'weekly-review': { '1.1.0': { ...rec('1.1.0', '2026-11-08T00:00:00Z'), permissions } } }, sources, revoked, generatedAt: '2026-11-10T12:00:00Z', expires: '2026-12-10T12:00:00Z' });
   assert.throws(bad({ ...stored, store: { quotaBytes: 20971521 } }), /permissions\.store/);
   assert.throws(bad({ ...stored, store: {} }), /permissions\.store/);

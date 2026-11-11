@@ -53,9 +53,7 @@ screenshots you name in `marketplace.json` live in the directory too.
   goes in the per-user store: declare `store` (`{}` for the default 5 MB per
   user, or `{ "quotaBytes": … }`, 1 KB to 20 MB) with the host scopes
   `store:read` and/or `store:write` (a write scope: only `write` and
-  `external` tools get it), and ask for no more quota than you need. The
-  store needs an `OCTIPUS_REF` with it (Octipus's per-user store); until
-  then `octi plugin validate` refuses `store`.
+  `external` tools get it), and ask for no more quota than you need.
 - **No `octipus-plugin.sig`** in the submission: the key holder signs.
 - **Regular files only.** A symbolic link or a submodule anywhere in the
   pull request fails it, as does a legacy plugin (`plugin.json` without

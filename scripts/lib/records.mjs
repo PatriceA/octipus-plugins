@@ -98,9 +98,8 @@ export function recordProblems(name, version, rec) {
   }
   // Exactly the CLI's object (octi plugin permissions --json): the index
   // carries it as it is, and the host compares it whole with what it
-  // recomputes from the package. A record from a CLI before the per-user
-  // store has no `store` (a host reads it as null); one from a newer CLI
-  // has it right after `settings`, within the quota bounds.
+  // recomputes from the package: with `secrets`, `settings` and `store`
+  // (null, or a quota within the bounds) as the pinned CLI prints them.
   const pp = permissionsProblems(rec.permissions);
   if (pp.length) for (const x of pp) p.push(`${at}: ${x}`);
   else if (rec.permissions.name !== name || rec.permissions.version !== version) p.push(`${at}: permissions are for ${rec.permissions.name} ${rec.permissions.version}`);

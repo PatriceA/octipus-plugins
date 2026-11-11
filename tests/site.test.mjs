@@ -17,7 +17,7 @@ after(() => rmSync(tmp, { recursive: true, force: true }));
 const fixture = join(import.meta.dirname, 'fixtures', 'plugins', 'reader');
 // The CLI's permissions for the reader fixture, with a command and a
 // schedule added (octi plugin permissions --json).
-// With the per-user store of a newer CLI (store:read and store:write, a 5 MB quota).
+// With a per-user store (store:read and store:write, a 5 MB quota).
 const permissions = withStore({ ...readerPermissions(), host: [...readerPermissions().host, 'store:read', 'store:write'].sort() }, { quotaBytes: 5 * 1024 * 1024 });
 permissions.contributions.commands = [{ name: 'read', tool: 'read_url' }];
 permissions.contributions.schedules = [{ id: 'digest', cron: '0 7 * * 1', tool: 'reader_action', input: { limit: 5 } }];

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assertPermissions, diffPermissions, formatStoreBytes, networkWarnings, permissionsProblems, PERMISSION_KEYS, STORE_PERMISSION_KEYS, storeWords } from './permissions.mjs';
+import { assertPermissions, diffPermissions, formatStoreBytes, networkWarnings, permissionsProblems, PERMISSION_KEYS, storeWords } from './permissions.mjs';
 import { withStore } from '../../tests/fixtures/permissions.mjs';
 
 const H = (c) => c.repeat(64);
@@ -8,7 +8,7 @@ const H = (c) => c.repeat(64);
 // The CLI's shape (octi plugin permissions --json) at the pinned OCTIPUS_REF.
 const base = {
   name: 'x', version: '1.0.0', apiVersion: '1.0.0', runtime: 'package',
-  host: ['notes:read'], network: ['api.example.com'],
+  host: ['notes:read'], network: ['api.example.com'], secrets: [], settings: [], store: null,
   tools: [{ name: 'list', effect: 'read' }, { name: 'save', effect: 'write' }],
   effects: { read: 1, write: 1, external: 0 },
   contributions: {
@@ -157,21 +157,21 @@ test('trustedInput, runtime and maxProtection', () => {
   assert.equal(diffPermissions(base, withP({ apiVersion: '1.1.0' })).widened, false);
 });
 
-// Review finding 11: secrets and settings (a newer CLI's permissions) and a
-// command's input. Absent and present both work.
-test('secrets and settings: optional, sorted, diffed; a new secret widens', () => {
-  // Wherever the newer CLI puts them, as long as the other keys keep their order.
-  for (const at of [6, 13]) {
-    const keys = [...PERMISSION_KEYS];
-    keys.splice(at, 0, 'secrets', 'settings');
-    const p = Object.fromEntries(keys.map((k) => [k, k === 'secrets' ? ['API_TOKEN'] : k === 'settings' ? ['base_url', 'limit'] : base[k]]));
-    assert.deepEqual(permissionsProblems(p), [], String(at));
+// Review finding 11: secrets and settings, and a command's input.
+test('secrets and settings: required, sorted, diffed; a new secret widens', () => {
+  // Required, right after network, as the pinned CLI prints them.
+  for (const k of ['secrets', 'settings']) {
+    const { [k]: _, ...without } = base;
+    assert.match(permissionsProblems(without)[0], /exactly/, k);
   }
+  const { secrets, settings, ...noLists } = base;
+  assert.match(permissionsProblems({ ...noLists, secrets, settings })[0], /in that order/);
   const withS = (secrets, settings) => ({ ...base, ...(secrets ? { secrets } : {}), ...(settings ? { settings } : {}) });
   assert.deepEqual(permissionsProblems(withS(['A'], null)), []);
   assert.match(permissionsProblems(withS(['B', 'A'], null)).join(), /secrets/);
   assert.match(permissionsProblems(withS(['A', 'A'], null)).join(), /twice/);
   assert.match(permissionsProblems(withS(null, [1])).join(), /settings/);
+  assert.match(permissionsProblems({ ...base, secrets: null }).join(), /secrets/);
   assert.match(permissionsProblems({ ...base, secretz: [] })[0], /exactly/);
 
   const d = diffPermissions(base, withS(['API_TOKEN'], ['base_url']));
@@ -183,26 +183,29 @@ test('secrets and settings: optional, sorted, diffed; a new secret widens', () =
   assert.deepEqual(texts(diffPermissions(withS(['A'], ['b']), base)), ['- secret A', '- setting b']);
   const t = diffPermissions(null, withS(['API_TOKEN'], ['limit'])).changes.map((c) => c.text);
   assert.ok(t.includes('secret API_TOKEN') && t.includes('setting limit'));
+  // A listing from before them (an index entry from an older CLI) diffs as none.
+  const { secrets: _s, settings: _t, store: _u, ...older } = base;
+  assert.deepEqual(diffPermissions(older, base).changes, []);
+  assert.deepEqual(texts(diffPermissions(older, withS(['A'], null))), ['+ secret A']);
 });
 
-// The per-user store (Octipus 5b050a2f): `store: { quotaBytes } | null`
-// right after `settings`, with store:read / store:write. Absent (the pinned
-// CLI) reads as null.
-test('store: optional, right after settings, within the bounds; absent reads as null', () => {
+// The per-user store: `store: { quotaBytes } | null` right after
+// `settings`, with store:read / store:write. Required, as the pinned CLI prints it.
+test('store: required, right after settings, within the bounds', () => {
   const MB = 1024 * 1024;
   const stored = (store, host = ['notes:read', 'store:read', 'store:write']) => withStore(withP({ host }), store);
   const five = stored({ quotaBytes: 5 * MB });
-  assert.deepEqual(Object.keys(five), STORE_PERMISSION_KEYS);
+  assert.deepEqual(Object.keys(five), PERMISSION_KEYS);
   assert.deepEqual(permissionsProblems(five), []);
   assert.deepEqual(permissionsProblems(withStore(base, null)), []);
-  assert.deepEqual(permissionsProblems(base), [], 'the pinned CLI\'s shape, without store');
+  const { store: _, ...noStore } = base;
+  assert.match(permissionsProblems(noStore)[0], /exactly/, 'a listing without store');
   for (const quotaBytes of [1024, 20 * MB]) assert.deepEqual(permissionsProblems(stored({ quotaBytes })), [], String(quotaBytes));
   for (const quotaBytes of [1023, 20 * MB + 1, 1024.5, '5242880', null, -1]) assert.match(permissionsProblems(stored({ quotaBytes })).join(), /permissions\.store/, String(quotaBytes));
-  for (const store of [{}, { quotaBytes: 5 * MB, extra: 1 }, [], true, 5 * MB]) assert.match(permissionsProblems(stored(store)).join(), /permissions\.store/, JSON.stringify(store));
+  for (const store of [{}, { quotaBytes: 5 * MB, extra: 1 }, [], true, 5 * MB, undefined]) assert.match(permissionsProblems(stored(store)).join(), /permissions\.store/, JSON.stringify(store));
   // Only right after settings, where the CLI prints it.
   const { store, ...rest } = five;
-  assert.match(permissionsProblems({ ...rest, store })[0], /right after settings/);
-  assert.match(permissionsProblems({ ...base, store: null })[0], /right after settings/, 'no settings before it');
+  assert.match(permissionsProblems({ ...rest, store })[0], /in that order/);
   // With a store scope, and only then (the CLI refuses the manifest otherwise).
   assert.match(permissionsProblems(stored({ quotaBytes: 5 * MB }, ['notes:read'])).join(), /without the host scope/);
   assert.match(permissionsProblems(stored(null, ['store:read'])).join(), /store is null/);
@@ -222,10 +225,10 @@ test('store: the diff and the words are Octipus\'s', () => {
 
   const store = (d) => d.changes.filter((c) => c.kind === 'store').map(({ kind, change, text, widens }) => ({ kind, change, text, widens }));
   assert.deepEqual(store(diffPermissions(noStore, stored(5 * MB))), [{ kind: 'store', change: 'added', text: 'store (5 MB per user)', widens: true }]);
-  // A listing without the key (the pinned CLI) reads as null, both ways.
-  assert.deepEqual(store(diffPermissions(base, stored(5 * MB))), [{ kind: 'store', change: 'added', text: 'store (5 MB per user)', widens: true }]);
-  assert.deepEqual(store(diffPermissions(stored(null), base)), []);
-  assert.deepEqual(diffPermissions(base, withStore(base, null)).changes, []);
+  // A listing without the key (an index entry from an older CLI) reads as null, both ways.
+  const { store: _, ...older } = noStore;
+  assert.deepEqual(store(diffPermissions(older, stored(5 * MB))), [{ kind: 'store', change: 'added', text: 'store (5 MB per user)', widens: true }]);
+  assert.deepEqual(store(diffPermissions(stored(null), older)), []);
   const wider = diffPermissions(stored(5 * MB), stored(10 * MB));
   assert.deepEqual(store(wider), [{ kind: 'store', change: 'wider', text: 'store quota 5 MB → 10 MB per user', widens: true }]);
   assert.equal(wider.widened, true);
