@@ -5,14 +5,24 @@
 //        --root-pub <root.pub>… [--passphrase-file <path|->] [--yes]
 //        [--keys-from <file|url>] [--index-from <file|url> | --no-previous-index]
 //        [--previous-keys-from <file|url>]
+//        [--ci-content-hash <name>@<version>=sha256:<hex>]… [--github-repo <owner/repo>]
 //
 // Run it with `node`, never through npm (npm would run a `presign` script of
 // package.json, and read an .npmrc of the repository). It imports nothing
 // but Node's built-ins, runs no other script of this repository, no npm, no
-// Astro: the only program it starts is git and the pinned Octipus CLI
+// Astro: the only programs it starts are git, gh (when it is installed, to
+// fetch CI's build record) and the pinned Octipus CLI
 // ($OCTIPUS/node_modules/.bin/tsx … scripts/plugin.ts at OCTIPUS_REF, checked
 // clean and an ancestor of its origin/main). Read it whole before a publish
 // when `git diff` shows it changed.
+//
+// It trusts nothing `publish build` left in release/ by itself: build ran
+// npm-installed code (ajv) on this machine, which could have replaced the
+// tarballs, the plan and the index template together. So each package's
+// content hash is derived three ways and must agree: from git's objects
+// (plugins/<name> at the plan's commit, exported here the way build.mjs
+// does), from the tarball, and from CI's build record (gh, or pasted by you
+// from the Actions log; for a re-sign, the last signed index).
 //
 // What it does, in order, stopping at the first doubt:
 //  1. The pinned CLI; this repository clean at the plan's commit.
@@ -23,17 +33,22 @@
 //     endorsed key: the anchor.
 //  4. The git diff stat of everything outside the plugin directories since
 //     the last publish, for you to read.
-//  5. For each package: the tarball build made, extracted here (regular
-//     files only), its name, version, content hash and permissions from the
-//     pinned CLI, compared with the plan and the index template (the
-//     permissions exactly), shown to you, and confirmed by you.
+//  5. For each package: plugins/<name> exported here from git's objects at
+//     the plan's commit (at the published record's commit for a re-sign;
+//     regular files only, no link or submodule anywhere in the commit) and
+//     hashed by the pinned CLI; the tarball build made, extracted here
+//     (regular files only), its name, version, content hash and permissions
+//     from the pinned CLI; CI's content hash (its build record through gh,
+//     or typed by you from the Actions log; for a re-sign the last signed
+//     index's). All three must equal the plan's. Compared with the index
+//     template (the permissions exactly), shown to you, and confirmed by you.
 //     Then signed (the signature covers the content hash, not the tarball),
 //     verified, and packed again with its signature by the pinned CLI.
 //  6. The index: the plan's template with each new tarball's sha256 and key
 //     id filled in, checked against the anchor (nothing published before
 //     dropped or changed, no revocation undone), signed and verified.
 // It writes only into a new directory (<plan dir>/signed), with O_EXCL.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import { closeSync, constants as C, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,6 +61,8 @@ import { gunzipSync } from 'node:zlib';
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const LIVE_INDEX = 'https://plugins.octipus.cc/index.json';
 export const LIVE_KEYS = 'https://plugins.octipus.cc/keys.json';
+/** The repository whose CI builds the marketplace (never taken from the plan). */
+export const GITHUB_REPO = 'PatriceA/octipus-plugins';
 /** The domain prefix of a keys.json signature (agreed with Octipus's host side). */
 export const KEYS_PREFIX = 'octipus-marketplace-keys/v1\n';
 const HEX40 = /^[0-9a-f]{40}$/;
@@ -327,6 +344,157 @@ export function extractTarball(gz, dest) {
   return top;
 }
 
+// ---------------------------------------------------------------- git
+
+/**
+ * The entries of `commit`'s tree under `paths` (all of it when none),
+ * recursively, from `git ls-tree -r -z --full-tree`: [{ mode, type, sha, path }].
+ */
+export function gitTree(repo, commit, paths = []) {
+  if (!HEX40.test(commit)) stop(`not a commit id: ${JSON.stringify(commit)}`);
+  for (const p of paths) safeRel(p, 'tree path');
+  const out = execFileSync('git', ['-C', repo, 'ls-tree', '-r', '-z', '--full-tree', commit, ...(paths.length ? ['--', ...paths] : [])], { maxBuffer: 256 * 1024 * 1024 });
+  return out.toString('utf8').split('\0').filter(Boolean).map((rec) => {
+    const tab = rec.indexOf('\t');
+    const [mode, type, sha] = rec.slice(0, tab).split(' ');
+    return { mode, type, sha, path: rec.slice(tab + 1) };
+  });
+}
+
+/** Refuse a link (120000), a submodule (160000), any mode but a regular file's, and an unsafe path. */
+export function assertRegularTree(entries, where) {
+  const bad = [];
+  for (const e of entries) {
+    if (e.mode === '120000') bad.push(`${e.path} is a symbolic link`);
+    else if (e.mode === '160000' || e.type === 'commit') bad.push(`${e.path} is a submodule`);
+    else if ((e.mode !== '100644' && e.mode !== '100755') || e.type !== 'blob') bad.push(`${e.path} has mode ${e.mode}`);
+    else {
+      try { safeRel(e.path, 'tree path'); } catch (err) { bad.push(err.message); }
+    }
+  }
+  if (bad.length) stop(`${where} has what this repository never accepts (no symbolic links, no submodules):\n${bad.slice(0, 20).map((b) => `  - ${b}`).join('\n')}`);
+}
+
+/** The bytes of each blob, in order (`git cat-file --batch`). */
+function gitBlobs(repo, shas) {
+  if (!shas.length) return [];
+  for (const x of shas) if (!/^[0-9a-f]{40,64}$/.test(x)) stop(`not a blob id: ${x}`);
+  const r = spawnSync('git', ['-C', repo, 'cat-file', '--batch'], { input: `${shas.join('\n')}\n`, maxBuffer: 2 * 1024 * 1024 * 1024 });
+  if (r.status !== 0) stop(`git cat-file failed: ${String(r.stderr).trim()}`);
+  const out = r.stdout;
+  const blobs = [];
+  let off = 0;
+  for (const sha of shas) {
+    const nl = out.indexOf(0x0a, off);
+    const head = out.subarray(off, nl).toString('utf8').split(' ');
+    if (head[0] !== sha || head[1] !== 'blob') stop(`git cat-file: expected blob ${sha}, got ${head.join(' ')}`);
+    const size = Number(head[2]);
+    blobs.push(out.subarray(nl + 1, nl + 1 + size));
+    off = nl + 1 + size + 1;
+  }
+  return blobs;
+}
+
+/**
+ * Export `prefix` (a directory) of `commit` from git's objects into the new
+ * directory `dest`, the way build.mjs does (scripts/lib/git.mjs exportTree):
+ * no checkout, no .gitattributes filter, regular files only (100755 keeps
+ * its execute bit), each written new (O_EXCL, O_NOFOLLOW) in a directory
+ * made here. Any link, submodule or unsafe path under `prefix` stops it.
+ * Returns the number of files.
+ */
+export function exportFromGit(repo, commit, prefix, dest) {
+  safeRel(prefix, 'export prefix');
+  const entries = gitTree(repo, commit, [prefix]).filter((e) => e.path.startsWith(`${prefix}/`));
+  assertRegularTree(entries, `${prefix} at ${commit.slice(0, 12)}`);
+  const blobs = gitBlobs(repo, entries.map((e) => e.sha));
+  mkdirSync(dest, { mode: 0o755 });
+  const made = new Set(['']);
+  entries.forEach((e, i) => {
+    const rel = e.path.slice(prefix.length + 1);
+    const parts = rel.split('/');
+    for (let k = 1; k < parts.length; k += 1) {
+      const d = parts.slice(0, k).join('/');
+      if (!made.has(d)) { mkdirSync(join(dest, d), { mode: 0o755 }); made.add(d); }
+    }
+    writeNew(join(dest, rel), blobs[i], e.mode === '100755' ? 0o755 : 0o644);
+  });
+  return entries.length;
+}
+
+// ---------------------------------------------------------------- CI's content hash
+
+/** `--ci-content-hash name@version=sha256:<hex>` values as a Map. */
+export function parseCiHashes(values = []) {
+  const m = new Map();
+  for (const v of values) {
+    const x = /^([a-z][a-z0-9-]{1,49})@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)=(sha256:[0-9a-f]{64})$/.exec(String(v).trim());
+    if (!x) stop(`--ci-content-hash ${JSON.stringify(v)}: expected <name>@<version>=sha256:<64 hex>`);
+    m.set(`${x[1]}@${x[2]}`, x[3]);
+  }
+  return m;
+}
+
+/**
+ * CI's build record for `commit` through gh: a successful `push` run of
+ * build.yml on main of `githubRepo` for exactly this commit, found here
+ * (never the run or the repository the plan names). Null when gh is not
+ * installed.
+ */
+export function fetchCiRecord({ gh = 'gh', githubRepo = GITHUB_REPO, commit, work, log }) {
+  if (spawnSync(gh, ['--version'], { stdio: 'ignore' }).status !== 0) return null;
+  const list = spawnSync(gh, ['run', 'list', '--repo', githubRepo, '--workflow', 'build.yml', '--event', 'push', '--branch', 'main', '--commit', commit, '--json', 'databaseId,status,conclusion,headSha,event,headBranch', '--limit', '20'], { encoding: 'utf8' });
+  if (list.status !== 0) stop(`gh run list failed: ${String(list.stderr).trim()}`);
+  let runs;
+  try { runs = JSON.parse(list.stdout || '[]'); } catch { stop('gh run list: not JSON'); }
+  const run = (Array.isArray(runs) ? runs : []).find((r) => r && r.headSha === commit && r.event === 'push' && r.headBranch === 'main' && r.status === 'completed' && r.conclusion === 'success');
+  if (!run || !Number.isSafeInteger(run.databaseId)) stop(`gh: no successful build.yml push run on main for ${commit.slice(0, 12)} in ${githubRepo}. Wait for CI, or (without gh) pass --ci-content-hash from its log.`);
+  const dir = mkdtempSync(join(work, 'ci-record-'));
+  const dl = spawnSync(gh, ['run', 'download', String(run.databaseId), '--repo', githubRepo, '--name', 'build-record', '--dir', join(dir, 'x')], { encoding: 'utf8' });
+  if (dl.status !== 0) stop(`gh run download ${run.databaseId} failed: ${String(dl.stderr).trim()}`);
+  let record;
+  try { record = JSON.parse(readRegular(join(dir, 'x', 'build-record.json'), 1024 * 1024).toString('utf8')); } catch (err) { if (err instanceof SignError) throw err; stop('CI\'s build-record.json is not JSON'); }
+  if (!isObj(record) || record.commit !== commit || !Array.isArray(record.packages)) stop(`CI's build record (run ${run.databaseId}) is not for ${commit.slice(0, 12)}`);
+  log(`CI build record: run ${run.databaseId} of ${githubRepo} (push to main, ${commit.slice(0, 12)})`);
+  return { runId: run.databaseId, record };
+}
+
+/**
+ * CI's content hash of each new package of the plan: from `--ci-content-hash`
+ * (typed by the key holder), else from CI's build record through gh, else
+ * asked for on the terminal (pasted from the Actions log). Map name@version →
+ * { contentHash, from }.
+ */
+async function ciContentHashes({ plan, head, typed, gh, githubRepo, work, log }) {
+  const fresh = plan.packages.filter((p) => p.kind === 'new');
+  const out = new Map();
+  if (!fresh.length) return out;
+  if (typed.size) {
+    for (const p of fresh) {
+      const k = `${p.name}@${p.version}`;
+      if (!typed.has(k)) stop(`--ci-content-hash has no ${k}: give one for every new package`);
+      out.set(k, { contentHash: typed.get(k), from: 'typed by you (--ci-content-hash)' });
+    }
+    return out;
+  }
+  const ci = fetchCiRecord({ gh, githubRepo, commit: head, work, log });
+  if (ci) {
+    for (const p of fresh) {
+      const r = ci.record.packages.find((x) => isObj(x) && x.name === p.name && x.version === p.version);
+      if (!r || typeof r.contentHash !== 'string') stop(`CI's build record (run ${ci.runId}) has no ${p.name} ${p.version}`);
+      out.set(`${p.name}@${p.version}`, { contentHash: r.contentHash, from: `CI's build record (run ${ci.runId}, gh)` });
+    }
+    return out;
+  }
+  log(`gh is not installed: paste CI's content hashes from the log of build.yml's push run for ${head.slice(0, 12)} on GitHub (its "Build" step, or the run summary's "Build record").`);
+  for (const p of fresh) {
+    const a = (await askLine(`CI's contentHash for ${p.name} ${p.version} (sha256:…): `)).trim();
+    if (!/^sha256:[0-9a-f]{64}$/.test(a)) stop(`not a content hash: ${JSON.stringify(a.slice(0, 100))}`);
+    out.set(`${p.name}@${p.version}`, { contentHash: a, from: 'pasted by you from the Actions log' });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- the plan
 
 /** Check a release plan strictly; returns it. */
@@ -427,7 +595,7 @@ function lastPublishCommit(repo) {
 }
 
 export async function sign(opts) {
-  const { repo = REPO, planFile, key, rootPubs = [], passphraseFile, yes = false, keysFrom = LIVE_KEYS, indexFrom = LIVE_INDEX, noPreviousIndex = false, previousKeysFrom, env = process.env, log = (m) => process.stderr.write(`${m}\n`), now = new Date() } = opts;
+  const { repo = REPO, planFile, key, rootPubs = [], passphraseFile, yes = false, keysFrom = LIVE_KEYS, indexFrom = LIVE_INDEX, noPreviousIndex = false, previousKeysFrom, ciContentHash = [], gh = 'gh', githubRepo = GITHUB_REPO, env = process.env, log = (m) => process.stderr.write(`${m}\n`), now = new Date() } = opts;
   // 1. The CLI and the repository.
   const cli = pinnedCli({ repo, env });
   log(`Octipus CLI: ${cli.dir} at ${cli.ref} (clean, on origin/main)`);
@@ -514,6 +682,13 @@ export async function sign(opts) {
     if (ep) stop(`the index template: ${ep}`);
     log(`The index expires at ${template.expires}: hosts refuse it after that, and warn after 7 days. Publish again within a week (a reminder is yours to set).`);
 
+    // What each package's content hash is checked against, besides the
+    // tarball: git's objects at the plan's commit, and CI's build record.
+    assertRegularTree(gitTree(repo, head), `commit ${head.slice(0, 12)}`);
+    let publishedAtHead = {};
+    try { publishedAtHead = JSON.parse(gitIn(repo, ['show', `${head}:published.json`])); } catch { /* none yet */ }
+    const ci = await ciContentHashes({ plan, head, typed: parseCiHashes(ciContentHash), gh, githubRepo, work, log });
+
     // 5. Each package.
     const out = join(planDir, 'signed');
     mkdirSync(out, { mode: 0o755 }); // EEXIST: never reuse an earlier signing's output
@@ -534,18 +709,41 @@ export async function sign(opts) {
       if (h.name !== p.name || h.version !== p.version || h.contentHash !== p.contentHash) stop(`${p.tarball}: the CLI hashes it as ${h.name} ${h.version} ${h.contentHash}, the plan says ${p.name} ${p.version} ${p.contentHash}`);
       const again = await cli.json('pack', [dir, '--out', join(x, 'repack.tar.gz')]);
       if (again.sha256.replace(/^sha256:/, '') !== p.sha256) stop(`${p.tarball}: repacking it here gives another tarball`);
+      // The same package from git's objects (finding 5): never from release/.
+      const known = prev?.packages?.find((e) => e.name === p.name && e.version === p.version);
+      let srcCommit = head;
+      if (p.kind === 'resign') {
+        const rec = publishedAtHead?.[p.name]?.[p.version];
+        if (!isObj(rec) || !HEX40.test(rec.commit ?? '') || rec.dir !== p.name) stop(`${p.name} ${p.version}: published.json at ${head.slice(0, 12)} has no record of it to re-sign from`);
+        srcCommit = rec.commit;
+      }
+      const src = join(work, `git-${p.name}-${p.version}`);
+      if (exportFromGit(repo, srcCommit, `plugins/${p.name}`, src) === 0) stop(`plugins/${p.name} is empty at ${srcCommit.slice(0, 12)}`);
+      try { lstatSync(join(src, 'octipus-plugin.sig')); stop(`plugins/${p.name}/octipus-plugin.sig is committed at ${srcCommit.slice(0, 12)}`); } catch (err) { if (err instanceof SignError) throw err; }
+      const fromGit = await cli.json('hash', [src]);
+      if (fromGit.name !== p.name || fromGit.version !== p.version) stop(`plugins/${p.name} at ${srcCommit.slice(0, 12)} is ${fromGit.name} ${fromGit.version}, not ${p.name} ${p.version}`);
+      const third = p.kind === 'new' ? ci.get(`${p.name}@${p.version}`) : { contentHash: known?.contentHash, from: 'the last signed index' };
+      const hashes = [
+        [`git, plugins/${p.name} at ${srcCommit.slice(0, 12)}`, fromGit.contentHash],
+        ['the tarball', h.contentHash],
+        [third?.from ?? 'CI', third?.contentHash ?? '(none)'],
+        ['the plan', p.contentHash],
+      ];
+      if (hashes.some(([, x]) => x !== p.contentHash)) {
+        stop(`${p.name} ${p.version}: the content hashes do not agree, nothing is signed:\n${hashes.map(([w, x]) => `  ${x}  ${w}`).join('\n')}\nDo not sign it. Find out which side changed (release/ is written by publish build, which runs npm packages).`);
+      }
       const perm = await cli.json('permissions', [dir]);
       // The index carries the CLI's object as it prints it; the host compares
       // it whole with what it recomputes, so any difference is uninstallable.
       const entry = template.packages.find((e) => e.name === p.name && e.version === p.version);
       if (!entry || JSON.stringify(entry.permissions) !== JSON.stringify(perm)) stop(`${p.name} ${p.version}: the index template's permissions are not what the pinned CLI computes for the tarball`);
-      const known = prev?.packages?.find((e) => e.name === p.name && e.version === p.version);
       if (p.kind === 'new' && known) stop(`${p.name} ${p.version} is already published`);
       if (p.kind === 'resign' && (!known || known.contentHash !== p.contentHash)) stop(`${p.name} ${p.version}: re-signing must keep the published content hash`);
       log([
         '',
         `── ${p.kind === 'new' ? 'NEW' : 'RE-SIGN'} ${p.name} ${p.version}`,
-        `   content hash  ${p.contentHash}`,
+        `   content hash  ${p.contentHash}, the same from`,
+        ...hashes.slice(0, 3).map(([w]) => `                   - ${w}`),
         `   tarball       sha256 ${p.sha256} (unsigned)`,
         `   permissions   ${JSON.stringify(perm, null, 2).split('\n').join('\n                 ')}`,
       ].join('\n'));
@@ -611,6 +809,7 @@ async function main() {
   const { values } = parseArgs({
     options: {
       plan: { type: 'string' }, key: { type: 'string' }, 'root-pub': { type: 'string', multiple: true }, 'passphrase-file': { type: 'string' },
+      'ci-content-hash': { type: 'string', multiple: true }, 'github-repo': { type: 'string' },
       yes: { type: 'boolean' }, 'keys-from': { type: 'string' }, 'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'previous-keys-from': { type: 'string' },
     },
   });
@@ -618,6 +817,7 @@ async function main() {
   await sign({
     planFile: values.plan, key: values.key, rootPubs: values['root-pub'] ?? [], passphraseFile: values['passphrase-file'], yes: values.yes === true,
     keysFrom: values['keys-from'] ?? LIVE_KEYS, indexFrom: values['index-from'] ?? LIVE_INDEX, noPreviousIndex: values['no-previous-index'] === true, previousKeysFrom: values['previous-keys-from'],
+    ciContentHash: values['ci-content-hash'] ?? [], githubRepo: values['github-repo'] ?? GITHUB_REPO,
   });
 }
 

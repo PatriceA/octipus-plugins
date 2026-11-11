@@ -245,13 +245,21 @@ Once:
      --key ~/octipus-keys/signing.key --root-pub ~/octipus-keys/root.pub
    ```
 
-   `sign.mjs` imports only Node's built-ins and starts only git and the
-   pinned CLI (HEAD exactly `OCTIPUS_REF`, clean, an ancestor of its
-   `origin/main`). It verifies `keys.json` with your root key and the live
-   index with an endorsed key, shows the diff stat outside the plugins, then
-   for each package extracts the tarball (files and directories only),
-   checks name, version and content hash with the CLI, shows them with the
-   permissions, and asks you to type `sign <name> <version>`. It signs the
+   `sign.mjs` imports only Node's built-ins and starts only git, `gh` (when
+   installed) and the pinned CLI (HEAD exactly `OCTIPUS_REF`, clean, an
+   ancestor of its `origin/main`). It verifies `keys.json` with your root key
+   and the live index with an endorsed key, shows the diff stat outside the
+   plugins, then for each package extracts the tarball (files and
+   directories only) and checks name, version and content hash with the
+   CLI. It trusts nothing in `release/` by itself (`build` ran npm packages
+   on this machine): it exports `plugins/<name>` at the plan's commit from
+   git's objects (as CI's build does: no checkout, no link) and hashes it
+   with the pinned CLI, and takes CI's content hash from the build record of
+   `build.yml`'s push run (through `gh`; without `gh`, it asks you to paste
+   it from that run's log, or take it as `--ci-content-hash
+   <name>@<version>=sha256:<hex>`; for a re-sign, from the last signed
+   index). It signs only when git, the tarball, CI and the plan agree, shows
+   them with the permissions, and asks you to type `sign <name> <version>`. It signs the
    extracted copy (the signature covers the content hash), verifies it, packs
    it again with its signature, fills the tarballs' sha256 and key id into
    the index, checks the index against the live one (nothing dropped or

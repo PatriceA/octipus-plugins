@@ -32,7 +32,7 @@ async function ciRecord() {
 }
 
 const buildOpts = (over = {}) => ({ root: m.repo, out: fresh('release'), keysFrom: m.keysFile, gh: m.gh, log: quiet, ...over });
-const signOpts = (planFile, over = {}) => ({ repo: m.repo, planFile, key: m.signingKey, rootPubs: [m.rootPub], passphraseFile: m.passFile, yes: true, keysFrom: m.keysFile, log: quiet, ...over });
+const signOpts = (planFile, over = {}) => ({ repo: m.repo, planFile, key: m.signingKey, rootPubs: [m.rootPub], passphraseFile: m.passFile, yes: true, keysFrom: m.keysFile, gh: m.gh, log: quiet, ...over });
 
 /** A full publish; returns the dist directory. */
 async function publishAll({ first = false, indexFrom } = {}) {
@@ -305,6 +305,85 @@ test('sign refuses a tarball, a plan or a key that is not what it should be', as
     rmSync(tarball);
     writeFileSync(tarball, Buffer.concat([bytes, Buffer.from([0])]));
     await assert.rejects(sign(signOpts(b.planFile, idx)), /not the tarball the plan names/);
+  });
+});
+
+// Review finding 5: publish build runs npm packages (ajv) on the key
+// holder's machine, so it could swap the tarball, the plan and the index
+// template together. sign derives the content hash again from git's objects
+// and takes CI's from its build record (gh) or from the key holder, and signs
+// only when the three agree.
+test('finding 5: sign re-derives each package from git and CI, whatever release/ says', async () => {
+  await attempt(async () => {
+    const manifestFile = join(m.repo, 'plugins', 'reader', 'octipus-plugin.json');
+    writeFileSync(manifestFile, readFileSync(manifestFile, 'utf8').replace('"version": "1.1.0"', '"version": "1.2.0"'));
+    writeFileSync(join(m.repo, 'plugins', 'reader', 'CHANGELOG.md'), '# Changelog\n\n## 1.2.0\n\n- Third.\n');
+    m.commitAll('reader 1.2.0');
+    const record = await ciRecord();
+    const idx = { indexFrom: join(live, 'index.json') };
+    const b = await publishBuild(buildOpts(idx));
+    const good = record.packages[0].contentHash;
+
+    // A compromised build: another server.mjs packed, and the plan and the
+    // template rewritten to match it.
+    const evil = fresh('evil');
+    mkdirSync(evil);
+    execFileSync('tar', ['-xzf', join(b.out, 'unsigned', 'reader-1.2.0.tar.gz'), '-C', evil]);
+    writeFileSync(join(evil, 'reader-1.2.0', 'server.mjs'), `${readFileSync(join(evil, 'reader-1.2.0', 'server.mjs'), 'utf8')}\n// exfiltrate\n`);
+    const tarball = join(b.out, 'unsigned', 'reader-1.2.0.tar.gz');
+    rmSync(tarball);
+    const packed = await cli.pack(join(evil, 'reader-1.2.0'), tarball);
+    assert.notEqual(packed.contentHash, good);
+    const templateFile = join(b.out, 'index.template.json');
+    const template = readFileSync(templateFile, 'utf8').replaceAll(good, packed.contentHash);
+    rmSync(templateFile);
+    writeFileSync(templateFile, template);
+    const plan = JSON.parse(readFileSync(b.planFile, 'utf8'));
+    plan.packages[0] = { ...plan.packages[0], contentHash: packed.contentHash, sha256: packed.sha256.replace(/^sha256:/, '') };
+    plan.index.sha256 = m.sha256(templateFile);
+    rmSync(b.planFile);
+    writeFileSync(b.planFile, JSON.stringify(plan, null, 2));
+    const err = await sign(signOpts(b.planFile, idx)).catch((e) => e);
+    assert.match(err?.message ?? '', /reader 1\.2\.0: the content hashes do not agree, nothing is signed/);
+    assert.ok(err.message.includes(`${good}  git, plugins/reader at ${m.g('rev-parse', 'HEAD').slice(0, 12)}`), err.message);
+    assert.ok(err.message.includes(`${packed.contentHash}  the tarball`));
+    assert.ok(err.message.includes(`${good}  CI's build record (run 7, gh)`));
+    assert.ok(!existsSync(join(b.out, 'signed', 'index.json')));
+    assert.ok(!existsSync(join(b.out, 'signed', 'dl', 'reader-1.2.0.tar.gz')));
+  });
+});
+
+test('finding 5: CI\'s content hash must agree too, from gh or typed by the key holder', async () => {
+  await attempt(async () => {
+    const manifestFile = join(m.repo, 'plugins', 'reader', 'octipus-plugin.json');
+    writeFileSync(manifestFile, readFileSync(manifestFile, 'utf8').replace('"version": "1.1.0"', '"version": "1.2.0"'));
+    writeFileSync(join(m.repo, 'plugins', 'reader', 'CHANGELOG.md'), '# Changelog\n\n## 1.2.0\n\n- Third.\n');
+    m.commitAll('reader 1.2.0');
+    const record = await ciRecord();
+    const idx = { indexFrom: join(live, 'index.json') };
+    const b = await publishBuild(buildOpts(idx));
+    const good = record.packages[0].contentHash;
+    const other = `sha256:${'e'.repeat(64)}`;
+    const again = (over) => { rmSync(join(b.out, 'signed'), { recursive: true, force: true }); return sign(signOpts(b.planFile, over)); };
+    // gh serves a record whose hash differs (CI built something else).
+    m.serveRecord({ ...record, packages: [{ ...record.packages[0], contentHash: other }] });
+    await assert.rejects(again(idx), /content hashes do not agree[\s\S]*CI's build record \(run 7, gh\)/);
+    // The run is found here, in PatriceA/octipus-plugins, never the plan's.
+    assert.match(m.ghCalls(), /run list --repo PatriceA\/octipus-plugins --workflow build\.yml --event push --branch main --commit [0-9a-f]{40}/);
+    // gh has no successful push run for this commit.
+    m.serveRecord(record, [{ databaseId: 9, status: 'completed', conclusion: 'success', headSha: record.commit, event: 'pull_request', headBranch: 'main' }]);
+    await assert.rejects(again(idx), /no successful build\.yml push run on main/);
+    // No gh: typed by the key holder (--ci-content-hash), or asked for on the terminal.
+    const noGh = { ...idx, gh: join(tmp, 'no-such-gh') };
+    await assert.rejects(again(noGh), /no terminal to ask: CI's contentHash for reader 1\.2\.0/);
+    await assert.rejects(again({ ...noGh, ciContentHash: [`reader@1.2.0=${other}`] }), /content hashes do not agree[\s\S]*typed by you/);
+    await assert.rejects(again({ ...noGh, ciContentHash: [`reader@1.1.0=${good}`] }), /--ci-content-hash has no reader@1\.2\.0/);
+    await assert.rejects(again({ ...noGh, ciContentHash: ['reader@1.2.0=deadbeef'] }), /expected <name>@<version>=sha256/);
+    assert.ok(!existsSync(join(b.out, 'signed', 'index.json')));
+    // All three agree: signed.
+    const r = await again({ ...noGh, ciContentHash: [`reader@1.2.0=${good}`] });
+    assert.equal(r.records.length, 1);
+    assert.ok(existsSync(join(b.out, 'signed', 'index.json')));
   });
 });
 
