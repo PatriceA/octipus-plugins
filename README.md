@@ -69,7 +69,7 @@ The commands used: `validate`, `hash`, `pack`, `permissions`, `verify`,
 keys.json (all offline, with `--json`).
 
 `OCTIPUS_REF` pins the Octipus commit on `main` whose CLI every script
-runs (f449b39e, the merge of the mail and calendar scopes). `scripts/sign.mjs`
+runs (4fb6f7ed, the merge of dashboards). `scripts/sign.mjs`
 and `scripts/keys.mjs` refuse a CLI checkout that is not exactly that commit,
 clean, and an ancestor of Octipus `origin/main`.
 

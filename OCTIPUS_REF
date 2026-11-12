@@ -1,8 +1,7 @@
 # The Octipus commit the scripts and CI run the `octi plugin` CLI from
 # (PatriceA/octipus). The first line that is not a comment is the ref, a full
-# 40-hex commit on Octipus main. Pinned to the merge of #498 (the mail and
-# calendar host scopes: mail:read, mail:draft, mail:send, calendar:read,
-# calendar:write), after #495 (the per-user store and the permissions shape
-# with secrets, settings and store). Move it forward deliberately, and
-# re-run the tests when you do.
-f449b39e8d265509830d8395d143a0ed0d8d9542
+# 40-hex commit on Octipus main. Pinned to the merge of #501 (dashboards:
+# the permissions shape with `dashboards` after `ui`), after #498 (the mail
+# and calendar host scopes) and #495 (the per-user store; secrets, settings
+# and store). Move it forward deliberately, and re-run the tests when you do.
+4fb6f7ed17dc80e3e6da6315e83d22b9dc4769bf
