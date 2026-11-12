@@ -14,6 +14,7 @@ export const readerPermissions = (version = '1.0.0') => ({
   contributions: { commands: [], schedules: [], events: [], prompt: null, context: null },
   pages: [{ path: 'read', title: 'Reader', entry: 'index.html' }],
   ui: { dir: 'ui', sha256: 'be6a9400341b5851b0091846224ea4262fdbd496bc22645e2135b9c38488dbfd' },
+  dashboards: [],
   trustedInput: false, maxProtection: 1,
 });
 
@@ -26,7 +27,7 @@ export const smallPermissions = ({ name = 'x', version = '1.0.0', host = [], too
     secrets: [], settings: [], store,
     tools, effects,
     contributions: { commands: [], schedules: [], events: [], prompt: null, context: null },
-    pages: [], ui: null, trustedInput: false, maxProtection: 1,
+    pages: [], ui: null, dashboards: [], trustedInput: false, maxProtection: 1,
   };
 };
 

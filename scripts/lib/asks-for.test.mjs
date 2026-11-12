@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { asksFor, asksForLines, CALENDAR_NOTE, egressReadWarning, MAIL_DRAFT_NOTE, MAIL_READ_NOTE, MAIL_SEND_NOTE, STORE_NOTE } from './asks-for.mjs';
+import { asksFor, asksForLines, CALENDAR_NOTE, DASHBOARD_NOTE, egressReadWarning, MAIL_DRAFT_NOTE, MAIL_READ_NOTE, MAIL_SEND_NOTE, STORE_NOTE } from './asks-for.mjs';
 import { smallPermissions } from '../../tests/fixtures/permissions.mjs';
 
 // The per-user store, in the words of Octipus's ask-summary and install consent.
@@ -29,4 +29,14 @@ test('mail and calendar: their notes; mail:send carries data out', () => {
   for (const note of [MAIL_READ_NOTE, MAIL_DRAFT_NOTE, MAIL_SEND_NOTE, CALENDAR_NOTE]) assert.ok(notes.includes(note), note.slice(0, 30));
   assert.match(egressReadWarning(['mail:read', 'mail:send']), /with mail:send and mail:read together/);
   assert.equal(egressReadWarning(['mail:draft', 'mail:read']), '');
+});
+
+// Dashboards (Octipus #501), in the words of Octipus's install consent.
+test('dashboards: one item each, with every widget\'s tool and input', () => {
+  const p = { ...smallPermissions(), dashboards: [{ id: 'main', title: 'Money', widgets: [{ id: 'open', type: 'stat', title: 'Open', tool: 't', input: { status: 'open' } }] }] };
+  const s = asksFor(p).find((x) => x.id === 'dashboards');
+  assert.equal(s.lead, 'dashboards: Money');
+  assert.deepEqual(s.items, [{ text: 'Adds the dashboard "Money": Open (stat) ← t {"status":"open"}' }]);
+  assert.deepEqual(s.notes, [DASHBOARD_NOTE]);
+  assert.equal(asksFor(smallPermissions()).find((x) => x.id === 'dashboards'), undefined);
 });

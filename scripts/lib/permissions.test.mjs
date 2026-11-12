@@ -20,6 +20,7 @@ const base = {
   },
   pages: [{ path: 'a', title: 'A', entry: 'index.html' }],
   ui: { dir: 'ui', sha256: H('b') },
+  dashboards: [],
   trustedInput: false, maxProtection: 1,
 };
 /** `base` with `over` merged (and contributions merged one level down). */
@@ -261,4 +262,29 @@ test('a wildcard host on what may be a public suffix is warned about', () => {
   assert.equal(w(['*']).length, 1);
   assert.deepEqual(w(['api.example.com', '*.api.example.com', 'x.github.io']), []);
   assert.match(w(['*.github.io'])[0], /public suffix/);
+});
+
+// Dashboards (Octipus #501): right after ui, sorted by id, widgets in order; checked and diffed as Octipus does.
+test('dashboards: their shape, the CLI\'s form, the diff', () => {
+  const dash = (widgets, id = 'main', title = 'Money') => ({ id, title, widgets });
+  const w = (over = {}) => ({ id: 'open', type: 'stat', title: 'Open', tool: 'list', ...over });
+  const withD = (dashboards) => withP({ dashboards });
+  assert.deepEqual(permissionsProblems(withD([dash([w({ input: { status: 'open' } }), w({ id: 'b', type: 'table' })])])), []);
+  assert.match(permissionsProblems(withD([dash([w({ type: 'html' })])])).join(), /dashboards/);
+  assert.match(permissionsProblems(withD([dash([])])).join(), /dashboards/);
+  assert.match(permissionsProblems(withD([dash([w({ input: { q: 'a\u202Eb' } })])])).join(), /dashboards/);
+  assert.match(permissionsProblems(withD([dash([w({ refreshSeconds: 60 })])])).join(), /dashboards/, 'layout fields are not in the summary');
+  assert.match(permissionsProblems(withD([dash([w()], 'zeta'), dash([w()], 'alpha')])).join(), /exact form/, 'sorted by id');
+  assert.match(permissionsProblems(withD([dash([w(), w()])])).join(), /twice/);
+  const { dashboards: _d, ...noDash } = base;
+  assert.match(permissionsProblems(noDash)[0], /exactly/);
+
+  const one = withD([dash([w(), w({ id: 'b', tool: 'save', type: 'table' })])]);
+  assert.deepEqual(texts(diffPermissions(base, one)), ['+ dashboard main ("Money"): list, save']);
+  assert.equal(diffPermissions(one, withD([dash([w({ input: { all: true } }), w({ id: 'b', tool: 'save', type: 'table' })])])).widened, true);
+  const relabelled = diffPermissions(one, withD([dash([w({ title: 'Open now' }), w({ id: 'b', tool: 'save', type: 'table' })])]));
+  assert.equal(relabelled.widened, false);
+  assert.equal(diffPermissions(one, base).widened, false);
+  const first = diffPermissions(null, one).changes.map((c) => c.text);
+  assert.ok(first.some((t) => t.startsWith('dashboard main ("Money"): open (stat) ← list')), first.join('\n'));
 });

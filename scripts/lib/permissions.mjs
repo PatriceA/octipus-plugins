@@ -20,7 +20,11 @@
 // the per-user store (docs/PLUGIN-PACKAGES.md#store) right after `settings`:
 //
 //   { name, version, apiVersion, runtime, host, network, secrets, settings,
-//     store, tools, effects, contributions, pages, ui, trustedInput, maxProtection }
+//     store, tools, effects, contributions, pages, ui, dashboards, trustedInput, maxProtection }
+//
+// `dashboards` (Octipus #501): [{ id, title, widgets: [{ id, type, title,
+// tool, input? }] }], sorted by id, each dashboard's widgets in their
+// declared order (the order they are drawn in).
 //
 // `store` is `{ quotaBytes } | null` (`{}` in the manifest prints
 // { quotaBytes: 5242880 }, no store prints null) and goes with the host
@@ -42,7 +46,10 @@
 export const EFFECT_RANK = { read: 0, write: 1, external: 2 };
 
 /** The keys of a permissions object, in the CLI's order. */
-export const PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'host', 'network', 'secrets', 'settings', 'store', 'tools', 'effects', 'contributions', 'pages', 'ui', 'trustedInput', 'maxProtection'];
+export const PERMISSION_KEYS = ['name', 'version', 'apiVersion', 'runtime', 'host', 'network', 'secrets', 'settings', 'store', 'tools', 'effects', 'contributions', 'pages', 'ui', 'dashboards', 'trustedInput', 'maxProtection'];
+
+/** The widget types Octipus draws (docs/PLUGIN-PACKAGES.md#dashboards). */
+export const WIDGET_TYPES = ['stat', 'list', 'table', 'chart', 'text'];
 
 /** The sorted name lists among them. */
 const NAME_LIST_KEYS = ['secrets', 'settings'];
@@ -128,6 +135,17 @@ export function permissionsProblems(p) {
   }
   if (!list(p.pages, 100) || !p.pages.every((x) => isObj(x) && text(x.path, 200) && text(x.title, 100) && text(x.entry, 300))) out.push('permissions.pages');
   if (p.ui !== null && !(isObj(p.ui) && text(p.ui.dir, 300) && typeof p.ui.sha256 === 'string' && HEX64.test(p.ui.sha256))) out.push('permissions.ui (null, or { dir, sha256 (64 lower-case hex) })');
+  // A widget's input is shown on the consent as JSON: no control or invisible character in it, keys or strings.
+  const clean = (v, depth = 0) => depth <= 20 && (typeof v === 'string' ? !BAD_TEXT.test(v)
+    : Array.isArray(v) ? v.every((x) => clean(x, depth + 1))
+      : isObj(v) ? Object.entries(v).every(([k, x]) => clean(k, depth + 1) && clean(x, depth + 1)) : true);
+  const widgetInput = (i) => i === undefined || (isObj(i) && Object.keys(i).every((k) => k.length <= 100) && JSON.stringify(i).length <= 4000 && clean(i));
+  const widget = (w) => isObj(w) && Object.keys(w).every((k) => ['id', 'type', 'title', 'tool', 'input'].includes(k))
+    && text(w.id, 40) && WIDGET_TYPES.includes(w.type) && text(w.title, 80) && text(w.tool, 64) && widgetInput(w.input);
+  if (!list(p.dashboards, 10) || !p.dashboards.every((d) => isObj(d) && Object.keys(d).join(',') === 'id,title,widgets'
+    && text(d.id, 40) && text(d.title, 60) && list(d.widgets, 24) && d.widgets.length > 0 && d.widgets.every(widget))) {
+    out.push('permissions.dashboards ([{ id, title, widgets: [{ id, type, title, tool, input? }] }], at most 10 of 24 widgets)');
+  }
   if (p.store !== null && !(isObj(p.store) && Object.keys(p.store).join(',') === 'quotaBytes'
     && Number.isSafeInteger(p.store.quotaBytes) && p.store.quotaBytes >= STORE_MIN_QUOTA_BYTES && p.store.quotaBytes <= STORE_MAX_QUOTA_BYTES)) {
     out.push(`permissions.store (null, or { quotaBytes: a whole number of bytes from ${STORE_MIN_QUOTA_BYTES} to ${STORE_MAX_QUOTA_BYTES} })`);
@@ -145,7 +163,7 @@ export function permissionsProblems(p) {
     const which = keys.filter((k) => JSON.stringify(canonical[k]) !== JSON.stringify(p[k]));
     out.push(`permissions are not in the CLI's exact form (${which.join(', ')}: key order, sorting, duplicates, the effect counts or ui)`);
   }
-  for (const [k, l] of [['host', p.host], ['network', p.network], ['tools', p.tools.map((t) => t.name)], ['commands', c.commands.map((x) => x.name)], ['schedules', c.schedules.map((x) => x.id)], ['pages', p.pages.map((x) => x.path)], ...NAME_LIST_KEYS.map((k) => [k, p[k]])]) {
+  for (const [k, l] of [['host', p.host], ['network', p.network], ['tools', p.tools.map((t) => t.name)], ['commands', c.commands.map((x) => x.name)], ['schedules', c.schedules.map((x) => x.id)], ['pages', p.pages.map((x) => x.path)], ['dashboards', p.dashboards.map((d) => d.id)], ...p.dashboards.map((d) => [`dashboard ${d.id} widgets`, d.widgets.map((w) => w.id)]), ...NAME_LIST_KEYS.map((k) => [k, p[k]])]) {
     if (new Set(l).size !== l.length) out.push(`permissions: ${k} lists one twice`);
   }
   return out;
@@ -190,6 +208,9 @@ function canonicalBase(p) {
     },
     pages,
     ui: pages.length > 0 ? { dir: p.ui?.dir, sha256: p.ui?.sha256 } : null,
+    dashboards: p.dashboards
+      .map((d) => ({ id: d.id, title: d.title, widgets: d.widgets.map((w) => ({ id: w.id, type: w.type, title: w.title, tool: w.tool, ...(w.input !== undefined ? { input: w.input } : {}) })) }))
+      .sort((a, b) => byCodeUnit(a.id, b.id)),
     trustedInput: p.trustedInput,
     maxProtection: p.maxProtection,
   };
@@ -342,6 +363,30 @@ function diffContributions(before, after, add) {
   if (before.ui && after.ui && (before.ui.dir !== after.ui.dir || before.ui.sha256 !== after.ui.sha256)) {
     add('pages', 'changed', `page files (${after.ui.dir}/)`, true);
   }
+
+  // Dashboards (Octipus's diff): a new one, or a widget fed by another tool or
+  // input, widens. A listing from before dashboards reads as none.
+  const wasD = new Map((before.dashboards ?? []).map((d) => [d.id, d]));
+  const nowD = new Map((after.dashboards ?? []).map((d) => [d.id, d]));
+  for (const [id, d] of nowD) {
+    const old = wasD.get(id);
+    if (!old) {
+      add('dashboards', 'added', `dashboard ${id} ("${d.title}"): ${d.widgets.map((w) => w.tool).join(', ')}`, true);
+      continue;
+    }
+    const oldW = new Map(old.widgets.map((w) => [w.id, w]));
+    for (const w of d.widgets) {
+      const ow = oldW.get(w.id);
+      if (!ow) add('dashboards', 'added', `dashboard ${id}: widget ${w.id} → ${w.tool}`, true);
+      else if (ow.tool !== w.tool || json(ow.input) !== json(w.input)) {
+        add('dashboards', 'changed', `dashboard ${id}: widget ${w.id} ${ow.tool} ${json(ow.input)} → ${w.tool} ${json(w.input)}`, true);
+      } else if (ow.type !== w.type || ow.title !== w.title) add('dashboards', 'changed', `dashboard ${id}: widget ${w.id} ("${w.title}", ${w.type})`, false);
+    }
+    const nowIds = new Set(d.widgets.map((w) => w.id));
+    for (const w of old.widgets) if (!nowIds.has(w.id)) add('dashboards', 'removed', `dashboard ${id}: widget ${w.id} → ${w.tool}`, false);
+    if (old.title !== d.title) add('dashboards', 'changed', `dashboard ${id}: "${old.title}" → "${d.title}"`, false);
+  }
+  for (const [id, d] of wasD) if (!nowD.has(id)) add('dashboards', 'removed', `dashboard ${id} ("${d.title}")`, false);
 }
 
 /** Every permission of a first version, as lines. */
@@ -361,6 +406,9 @@ function describeAll(a) {
   if (c.context) lines.push(`context → ${c.context.tool} (${rolesText(c.context.roles)})`);
   for (const p of a.pages) lines.push(`page ${p.path} ("${p.title}") → ${p.entry}`);
   if (a.ui) lines.push(`page files (${a.ui.dir}/), sha256 ${a.ui.sha256}`);
+  for (const d of a.dashboards ?? []) {
+    lines.push(`dashboard ${d.id} ("${d.title}"): ${d.widgets.map((w) => `${w.id} (${w.type}) ← ${w.tool}${w.input !== undefined ? ` ${JSON.stringify(w.input)}` : ''}`).join('; ')}`);
+  }
   if (a.trustedInput) lines.push('model.trustedInput');
   lines.push(`maxProtection ${a.maxProtection}`);
   return lines;

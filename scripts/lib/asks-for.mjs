@@ -57,6 +57,9 @@ export const CALENDAR_NOTE = 'The calendars connected in Settings → Integratio
   + 'Events carry no protection level of their own: they count as the level an admin sets (plugins.calendarProtectionLevel, default 3). '
   + 'calendar:write adds events and changes only the ones this plugin added.';
 
+export const DASHBOARD_NOTE = 'Octipus draws a dashboard itself: no code of the plugin runs in the browser. Each widget shows what one of the plugin\'s read tools '
+  + 'returns, called as the user who opens it, with the arguments listed here and no access to the user\'s Octipus data; text is shown as text, and a link only to a public host the plugin declares.';
+
 export const STORE_NOTE = 'Octipus keeps this data for each user apart: the plugin only ever reaches the data of the user it acts for, never another user\'s. '
   + 'Each user can delete theirs in Settings → My plugin usage; uninstalling the plugin deletes everyone\'s.';
 
@@ -190,6 +193,19 @@ export function asksFor(perm, { name } = {}) {
         ...(p.ui && typeof p.ui === 'object' ? [{ text: `Serves its page files: ${p.ui.dir}/${p.ui.sha256 ? `, sha256 ${p.ui.sha256}` : ''}` }] : []),
       ],
       notes: ['Its pages are added to the sidebar while it is enabled, and run in a sandboxed frame that reaches the package only through the page bridge.'],
+    });
+  }
+
+  const dashboards = arr(p.dashboards).filter((d) => d && typeof d === 'object');
+  if (dashboards.length > 0) {
+    sections.push({
+      id: 'dashboards',
+      title: 'Dashboards',
+      lead: `dashboards: ${dashboards.map((d) => d.title).join(', ')}`,
+      items: dashboards.map((d) => ({
+        text: `Adds the dashboard "${d.title}": ${arr(d.widgets).map((w) => `${w.title} (${w.type}) ← ${w.tool}${w.input !== undefined ? ` ${JSON.stringify(w.input)}` : ''}`).join('; ')}`,
+      })),
+      notes: [DASHBOARD_NOTE],
     });
   }
 
