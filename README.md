@@ -271,6 +271,17 @@ Once:
    the questions, with a loud banner. Read `git diff <last publish>..HEAD --
    scripts/sign.mjs` before a release when it changed.
 
+   **Retry after a typo or interruption:** rerun the same signing command
+   with `--retry`. It preserves the incomplete `release/signed/` directory
+   in a unique `release/signing-recovery-*/signed/` archive, then repeats
+   all checks and confirmations. A running signer blocks concurrent attempts;
+   markers from exited processes are preserved and safely ignored. Nothing is
+   uploaded by signing. Type
+   `sign <name> <version>` for each package, then `sign the index` exactly.
+   If `release/signed/signed.json` exists, signing already completed:
+   continue with **Finish** below. Completed signing output is never
+   replaced, even with `--retry`.
+
    Why packing after signing is safe: the signature is over the content hash,
    and the signature file is the one file the content hash leaves out, so the
    signed tarball has the same content hash as the unsigned one that was

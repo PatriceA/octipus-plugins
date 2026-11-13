@@ -2,7 +2,7 @@
 // The key session: sign what `npm run publish -- build` prepared.
 //
 //   node scripts/sign.mjs --plan release/release-plan.json --key <signing.key>
-//        --root-pub <root.pub>… [--passphrase-file <path|->] [--yes]
+//        --root-pub <root.pub>… [--passphrase-file <path|->] [--yes] [--retry]
 //        [--keys-from <file|url>] [--index-from <file|url> | --no-previous-index]
 //        [--previous-keys-from <file|url>]
 //        [--ci-content-hash <name>@<version>=sha256:<hex>]… [--github-repo <owner/repo>]
@@ -50,7 +50,7 @@
 // It writes only into a new directory (<plan dir>/signed), with O_EXCL.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
-import { closeSync, constants as C, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, constants as C, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, readdirSync, renameSync, rmdirSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -87,6 +87,53 @@ export function expiresProblem(doc, maxDays) {
 
 export class SignError extends Error {}
 const stop = (m) => { throw new SignError(m); };
+
+/** Unique live-owner markers serialize signing without ever deleting another owner's lock. */
+export function acquireSigningLock(planDir, { log = (m) => process.stderr.write(`${m}\n`) } = {}) {
+  const marker = mkdtempSync(join(planDir, `signing-active-${process.pid}-`));
+  const release = () => rmdirSync(marker);
+  try {
+    for (const name of readdirSync(planDir)) {
+      if (join(planDir, name) === marker || !name.startsWith('signing-active-')) continue;
+      const match = /^signing-active-([1-9][0-9]*)-[a-zA-Z0-9]+$/.exec(name);
+      if (!match || !Number.isSafeInteger(Number(match[1]))) stop(`Unrecognized signing lock ${name}; inspect it before continuing.`);
+      const pid = Number(match[1]);
+      try { process.kill(pid, 0); }
+      catch (err) {
+        if (err.code === 'ESRCH') {
+          log(`Ignoring stale signing marker ${name}: process ${pid} has exited. Marker preserved.`);
+          continue;
+        }
+        throw new SignError(`Cannot establish that signer ${pid} has exited; wait for it to finish before retrying.`);
+      }
+      stop(`Another signing process (${pid}) is active. Wait for it to finish or stop it before retrying.`);
+    }
+    return release;
+  } catch (err) {
+    release();
+    throw err;
+  }
+}
+
+/** Preserve an interrupted attempt; completed signing receipts must never be replaced. */
+export function prepareSigningOutput(planDir, { retry = false, log = (m) => process.stderr.write(`${m}\n`) } = {}) {
+  const out = join(planDir, 'signed');
+  let previous;
+  try { previous = lstatSync(out); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  if (previous) {
+    if (!previous.isDirectory() || previous.isSymbolicLink()) stop('signed output is not a regular directory; inspect it before retrying');
+    let receipt;
+    try { receipt = lstatSync(join(out, 'signed.json')); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    if (receipt) stop('Signing is already complete (signed/signed.json exists). Run publish finish for this plan; completed output is never replaced.');
+    if (!retry) stop('An incomplete signing attempt exists. Rerun this signing command with --retry to preserve it and start again. Nothing has been published by signing.');
+    const archive = mkdtempSync(join(planDir, 'signing-recovery-'));
+    renameSync(out, join(archive, 'signed'));
+    log(`Preserved incomplete signing output in ${archive}. All verification and confirmations will run again.`);
+  }
+  mkdirSync(out, { mode: 0o755 });
+  mkdirSync(join(out, 'dl'), { mode: 0o755 });
+  return out;
+}
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 export const sha256Hex = (b) => createHash('sha256').update(b).digest('hex');
 
@@ -621,7 +668,7 @@ function lastPublishCommit(repo) {
 }
 
 export async function sign(opts) {
-  const { repo = REPO, planFile, key, rootPubs = [], passphraseFile, yes = false, keysFrom = LIVE_KEYS, indexFrom = LIVE_INDEX, noPreviousIndex = false, previousKeysFrom, ciContentHash = [], gh = 'gh', githubRepo = GITHUB_REPO, env = process.env, log = (m) => process.stderr.write(`${m}\n`), now = new Date() } = opts;
+  const { repo = REPO, planFile, key, rootPubs = [], passphraseFile, yes = false, retry = false, keysFrom = LIVE_KEYS, indexFrom = LIVE_INDEX, noPreviousIndex = false, previousKeysFrom, ciContentHash = [], gh = 'gh', githubRepo = GITHUB_REPO, env = process.env, log = (m) => process.stderr.write(`${m}\n`), now = new Date() } = opts;
   // 1. The CLI and the repository.
   const cli = pinnedCli({ repo, env });
   log(`Octipus CLI: ${cli.dir} at ${cli.ref} (clean, on origin/main)`);
@@ -646,8 +693,10 @@ export async function sign(opts) {
   log(`keys.json v${keys.doc.version}, signed by root ${keys.rootKeyId}; endorsed: ${keys.endorsed.map((k) => k.keyId).join(', ') || 'none'}`);
   if (!keys.endorsed.length) stop('keys.json endorses no signing key');
 
-  const work = mkdtempSync(join(tmpdir(), 'octipus-sign-'));
+  const releaseLock = acquireSigningLock(planDir, { log });
+  let work;
   try {
+    work = mkdtempSync(join(tmpdir(), 'octipus-sign-'));
     const pubFiles = keys.endorsed.map((k, i) => { const f = join(work, `endorsed-${i}.pub`); writeNew(f, k.publicKey); return { ...k, file: f }; });
 
     // 3. The anchor.
@@ -706,9 +755,7 @@ export async function sign(opts) {
     const ci = await ciContentHashes({ plan, head, typed: parseCiHashes(ciContentHash), gh, githubRepo, work, log });
 
     // 5. Each package.
-    const out = join(planDir, 'signed');
-    mkdirSync(out, { mode: 0o755 }); // EEXIST: never reuse an earlier signing's output
-    mkdirSync(join(out, 'dl'), { mode: 0o755 });
+    const out = prepareSigningOutput(planDir, { retry, log });
     const records = [];
     let signingKeyId = null;
     for (const p of plan.packages) {
@@ -765,7 +812,7 @@ export async function sign(opts) {
       ].join('\n'));
       if (!yes) {
         const a = await askLine(`Sign ${p.name} ${p.version}? Type "sign ${p.name} ${p.version}": `);
-        if (a.trim() !== `sign ${p.name} ${p.version}`) stop(`not confirmed: ${p.name} ${p.version} is not signed, nothing is`);
+        if (a.trim() !== `sign ${p.name} ${p.version}`) stop(`not confirmed: ${p.name} ${p.version} is not signed. Rerun the same signing command with --retry to preserve this incomplete attempt and try again.`);
       }
       await cli.run('sign', [dir, '--key', keyPath, '--passphrase-file', '-'], { input: passphrase });
       const sigText = readRegular(join(dir, 'octipus-plugin.sig'), 1024).toString('utf8');
@@ -802,7 +849,7 @@ export async function sign(opts) {
     log(fresh.length ? `New revocations:\n${fresh.map((r) => `  - ${r.keyId ?? `${r.name} ${r.version}`}: ${r.reason}`).join('\n')}` : 'No new revocations.');
     if (!yes) {
       const a = await askLine('Sign the index? Type "sign the index": ');
-      if (a.trim() !== 'sign the index') stop('not confirmed: the index is not signed');
+      if (a.trim() !== 'sign the index') stop('not confirmed: the index is not signed. Rerun the same signing command with --retry to preserve this incomplete attempt and try again.');
     }
     const bytes = `${JSON.stringify(index, null, 2)}\n`;
     const indexFile = join(out, 'index.json');
@@ -817,7 +864,7 @@ export async function sign(opts) {
     log(`\nSigned: ${records.length} package(s) and the index (${vi.keyId}), in ${out}.\nNext (no key needed): npm run publish -- finish --plan ${planFile}`);
     return { out, records, keyId: vi.keyId };
   } finally {
-    rmSync(work, { recursive: true, force: true });
+    try { if (work) rmSync(work, { recursive: true, force: true }); } finally { releaseLock(); }
   }
 }
 
@@ -826,13 +873,13 @@ async function main() {
     options: {
       plan: { type: 'string' }, key: { type: 'string' }, 'root-pub': { type: 'string', multiple: true }, 'passphrase-file': { type: 'string' },
       'ci-content-hash': { type: 'string', multiple: true }, 'github-repo': { type: 'string' },
-      yes: { type: 'boolean' }, 'keys-from': { type: 'string' }, 'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'previous-keys-from': { type: 'string' },
+      yes: { type: 'boolean' }, retry: { type: 'boolean' }, 'keys-from': { type: 'string' }, 'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'previous-keys-from': { type: 'string' },
     },
   });
   refuseNpm();
   if (!values.plan) stop('--plan <release/release-plan.json> is required');
   await sign({
-    planFile: values.plan, key: values.key, rootPubs: values['root-pub'] ?? [], passphraseFile: values['passphrase-file'], yes: values.yes === true,
+    planFile: values.plan, key: values.key, rootPubs: values['root-pub'] ?? [], passphraseFile: values['passphrase-file'], yes: values.yes === true, retry: values.retry === true,
     keysFrom: values['keys-from'] ?? LIVE_KEYS, indexFrom: values['index-from'] ?? LIVE_INDEX, noPreviousIndex: values['no-previous-index'] === true, previousKeysFrom: values['previous-keys-from'],
     ciContentHash: values['ci-content-hash'] ?? [], githubRepo: values['github-repo'] ?? GITHUB_REPO,
   });
