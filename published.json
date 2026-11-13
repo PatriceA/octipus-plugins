@@ -1,1 +1,71 @@
-{}
+{
+  "text-toolkit": {
+    "0.1.0": {
+      "sha256": "45a0e44643f507caa6e095e96b8edfe6588aa9bf0391d49d8dd1226831d1dddd",
+      "contentHash": "sha256:43aaaf0302f5ed2aae94eeb777bd872e4d2faf3795c9b7cb9669ec8dbc9bca53",
+      "permissions": {
+        "name": "text-toolkit",
+        "version": "0.1.0",
+        "apiVersion": "1.0.0",
+        "runtime": "package",
+        "host": [],
+        "network": [],
+        "secrets": [],
+        "settings": [],
+        "store": null,
+        "tools": [
+          {
+            "name": "analyze_text",
+            "effect": "read"
+          },
+          {
+            "name": "normalize_whitespace",
+            "effect": "read"
+          }
+        ],
+        "effects": {
+          "read": 2,
+          "write": 0,
+          "external": 0
+        },
+        "contributions": {
+          "commands": [],
+          "schedules": [],
+          "events": [],
+          "prompt": null,
+          "context": null
+        },
+        "pages": [],
+        "ui": null,
+        "dashboards": [],
+        "trustedInput": false,
+        "maxProtection": 4
+      },
+      "publishedAt": "2026-11-13T11:53:36Z",
+      "commit": "01724707422f8c4db713df931f5c6d80d4167208",
+      "dir": "text-toolkit",
+      "description": "Count words and characters, estimate reading time, and tidy whitespace locally.",
+      "apiVersion": "1.0.0",
+      "minOctipus": "0.6.0",
+      "listing": {
+        "$schema": "../../schema/marketplace.schema.json",
+        "title": "Text toolkit",
+        "summary": "Count words and tidy pasted text, locally.",
+        "category": "utilities",
+        "tags": [
+          "text",
+          "writing",
+          "utilities"
+        ],
+        "license": "MIT",
+        "author": {
+          "name": "Octipus",
+          "url": "https://octipus.cc"
+        },
+        "minOctipus": "0.6.0"
+      },
+      "keyId": "ed25519:bc7a40c965044c92767101f41f59ddcf39cd295b7290533cf6bf045dbb1b2d8b",
+      "signatureFile": "{\n  \"alg\": \"ed25519\",\n  \"keyId\": \"ed25519:bc7a40c965044c92767101f41f59ddcf39cd295b7290533cf6bf045dbb1b2d8b\",\n  \"signature\": \"l3isKG1LJtGU6VkzB0B0FKgRB+o3j/N1Edj4mQBDdZ67kE/HoYWwHneRGWCktNFHENhqGMUuDhbQmQEb5Zn+Ag==\"\n}\n"
+    }
+  }
+}
