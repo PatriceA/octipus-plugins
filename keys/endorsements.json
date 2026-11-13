@@ -1,4 +1,9 @@
 {
-  "signingKeys": [],
+  "signingKeys": [
+    {
+      "file": "signing/publisher.pub",
+      "notAfter": "2027-11-12T17:06:03Z"
+    }
+  ],
   "revokedKeys": []
 }
