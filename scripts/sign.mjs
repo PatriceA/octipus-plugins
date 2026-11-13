@@ -812,7 +812,7 @@ export async function sign(opts) {
       ].join('\n'));
       if (!yes) {
         const a = await askLine(`Sign ${p.name} ${p.version}? Type "sign ${p.name} ${p.version}": `);
-        if (a.trim() !== `sign ${p.name} ${p.version}`) stop(`not confirmed: ${p.name} ${p.version} is not signed, nothing is`);
+        if (a.trim() !== `sign ${p.name} ${p.version}`) stop(`not confirmed: ${p.name} ${p.version} is not signed. Rerun the same signing command with --retry to preserve this incomplete attempt and try again.`);
       }
       await cli.run('sign', [dir, '--key', keyPath, '--passphrase-file', '-'], { input: passphrase });
       const sigText = readRegular(join(dir, 'octipus-plugin.sig'), 1024).toString('utf8');
@@ -849,7 +849,7 @@ export async function sign(opts) {
     log(fresh.length ? `New revocations:\n${fresh.map((r) => `  - ${r.keyId ?? `${r.name} ${r.version}`}: ${r.reason}`).join('\n')}` : 'No new revocations.');
     if (!yes) {
       const a = await askLine('Sign the index? Type "sign the index": ');
-      if (a.trim() !== 'sign the index') stop('not confirmed: the index is not signed');
+      if (a.trim() !== 'sign the index') stop('not confirmed: the index is not signed. Rerun the same signing command with --retry to preserve this incomplete attempt and try again.');
     }
     const bytes = `${JSON.stringify(index, null, 2)}\n`;
     const indexFile = join(out, 'index.json');
