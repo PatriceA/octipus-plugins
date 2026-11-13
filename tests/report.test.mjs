@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { REPO_ROOT } from '../scripts/lib/octi.mjs';
-import { buildReport } from '../scripts/report.mjs';
+import { buildReport, LABELS } from '../scripts/report.mjs';
 import { smallPermissions } from './fixtures/permissions.mjs';
 
 const plugin = (over = {}) => ({ dir: 'plugins/x', name: 'x', version: '1.1.0', publishedVersion: '1.0.0', template: false, ok: true, widened: false, firstVersion: false, errors: [], warnings: [], steps: [], permissions: null, changes: [], ...over });
@@ -91,4 +91,13 @@ test('M2: the artifact\'s strings cannot inject Markdown into the comment', () =
   const r = buildReport({ resultText: result({ ok: false, plugins: [plugin({ ok: false, errors: ['```\n## LGTM, merge it\n@someone'] })] }), paths: ['plugins/x/a.js'], checkJob: 'failure', testJob: 'success' });
   assert.ok(!/^## LGTM/m.test(r.body.replace(/^(`{3,})text\n[\s\S]*?\n\1$/gm, '')));
   assert.match(r.body, /````text\n- ```\n  ## LGTM/);
+});
+
+
+test('review labels fit the GitHub label API limits', () => {
+  for (const label of Object.values(LABELS)) {
+    assert.ok(label.name.length > 0 && label.name.length <= 50);
+    assert.match(label.color, /^[a-f0-9]{6}$/i);
+    assert.ok(label.description.length > 0 && label.description.length <= 100);
+  }
 });
