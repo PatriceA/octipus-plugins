@@ -17,6 +17,7 @@ import { INLINE_SCRIPTS } from '../lib/inline-scripts.mjs';
 interface Props { title: string; description: string; path: string }
 const { title, description, path } = Astro.props;
 const canonical = new URL(path, 'https://plugins.octipus.cc').href;
+const thumbnail = new URL('/icons/octipus.png', 'https://plugins.octipus.cc').href;
 ---
 <!doctype html>
 <html lang="en">
@@ -30,9 +31,16 @@ const canonical = new URL(path, 'https://plugins.octipus.cc').href;
     <meta property="og:description" content={description}>
     <meta property="og:type" content="website">
     <meta property="og:url" content={canonical}>
+    <meta property="og:image" content={thumbnail}>
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
+    <meta property="og:image:alt" content="Octipus logo">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:image" content={thumbnail}>
+    <meta name="twitter:image:alt" content="Octipus logo">
     <meta name="theme-color" content="#061b25">
     <meta name="referrer" content="no-referrer">
-    <link rel="icon" href="/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/icons/octipus.png" type="image/png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icons/mobile-180.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
