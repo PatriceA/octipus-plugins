@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schema/marketplace.schema.json",
+  "title": "Text toolkit",
+  "summary": "Count words and tidy pasted text, locally.",
+  "category": "utilities",
+  "tags": [
+    "text",
+    "writing",
+    "utilities"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Octipus",
+    "url": "https://octipus.cc"
+  },
+  "minOctipus": "0.6.0"
+}

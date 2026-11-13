@@ -1,0 +1,26 @@
+{
+  "name": "text-toolkit",
+  "version": "0.1.0",
+  "apiVersion": "1.0.0",
+  "title": "Text toolkit",
+  "description": "Count words and characters, estimate reading time, and tidy whitespace locally.",
+  "publisher": "Octipus",
+  "server": {
+    "command": "node",
+    "args": [
+      "server.mjs"
+    ]
+  },
+  "tools": {
+    "analyze_text": {
+      "effect": "read",
+      "description": "Count words, characters and lines, and estimate reading time."
+    },
+    "normalize_whitespace": {
+      "effect": "read",
+      "description": "Clean trailing spaces and excess blank lines while preserving indentation."
+    }
+  },
+  "network": [],
+  "maxProtection": 4
+}
