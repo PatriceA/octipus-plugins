@@ -117,7 +117,9 @@ export function validateConfig(config) {
 async function remoteMatches(config, state, dist) {
   if (!config.deploy) return false;
   verifyArtifacts(dist, state.artifacts);
-  const paths = ['index.json', 'index.json.sig', 'keys.json', 'keys.json.sig', 'index.html', ...Object.keys(state.artifacts).filter(p => p.startsWith('dl/'))];
+  // Verify the whole shipped site, including its assets. stats.json is live telemetry
+  // intentionally preserved by the transfer and is not a signed release artifact.
+  const paths = Object.keys(state.artifacts).filter(p => p !== 'stats.json');
   for (const path of paths) {
     if (!Object.hasOwn(state.artifacts, path)) continue;
     const response = await fetch(new URL(path, config.deploy.publicUrl.replace(/\/?$/, '/')), { redirect: 'error', signal: AbortSignal.timeout(30000), headers: { 'cache-control': 'no-cache' } });
