@@ -73,7 +73,7 @@
     products.forEach(function (p) {
       var id = 'v-' + p;
       var label = el('label', p); label.htmlFor = id;
-      var input = document.createElement('input'); input.type = 'text'; input.id = id; input.dataset.product = p; input.placeholder = 'e.g. 2.0.0 (empty: skip)'; input.value = (profile.targetVersions || {})[p] || ''; 
+      var input = document.createElement('input'); input.type = 'text'; input.id = id; input.dataset.product = p; input.placeholder = 'e.g. 2.0.0 (empty: skip)'; input.value = (profile.targetVersions || {})[p] || '';
       box.appendChild(label); box.appendChild(input);
     });
   }
