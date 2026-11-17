@@ -135,8 +135,7 @@ async function validatorCheckout(stateDir) {
   const destination = join(stateDir, 'validator', ref);
   if (!existsSync(join(destination, '.git'))) {
     mkdirSync(dirname(destination), { recursive: true });
-    const sibling = resolve(ROOT, '..', 'octipus');
-    await command('git', ['clone', '--quiet', '--no-checkout', '--no-hardlinks', existsSync(join(sibling, '.git')) ? sibling : 'https://github.com/PatriceA/octipus.git', destination]);
+    await command('git', ['clone', '--quiet', '--no-checkout', 'https://github.com/PatriceA/octipus.git', destination]);
     await command('git', ['checkout', '--quiet', '--detach', ref], { cwd: destination });
   }
   // A local clone can have a stale local main even when its remote-tracking main is current.
