@@ -4,4 +4,4 @@
 # the permissions shape with `dashboards` after `ui`), after #498 (the mail
 # and calendar host scopes) and #495 (the per-user store; secrets, settings
 # and store). Move it forward deliberately, and re-run the tests when you do.
-c9f6a39435ea950b0d4888f7afcfb26908daf8d8
+574a55f0d54f5ce830b9d4e59a3f9d068de3a665
