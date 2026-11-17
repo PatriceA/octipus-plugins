@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schema/marketplace.schema.json",
+  "title": "Release reconciliation",
+  "summary": "Compare release branches, commits and tracker versions with exact evidence.",
+  "category": "developer",
+  "tags": [
+    "git",
+    "releases",
+    "audit"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Octipus",
+    "url": "https://octipus.cc"
+  },
+  "minOctipus": "0.7.0"
+}
