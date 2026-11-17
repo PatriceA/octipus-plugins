@@ -65,6 +65,16 @@ const config = JSON.stringify({ plugins: {
         <h2 id="readme-title" class="sr-only">About {title}</h2>
         {readmeHtml ? <div class="prose" set:html={readmeHtml} /> : <div class="prose"><p>{l.description ?? ''}</p></div>}
       </section>
+      {(l.permissions?.companions ?? []).length > 0 && <section aria-labelledby="companions-title">
+        <h2 id="companions-title">Companion services</h2>
+        <p>Included in the signed plugin package. Install separately on the stated machine; Octipus does not start, update or remove these services.</p>
+        {l.permissions.companions.map(c => <article class="prose">
+          <h3>{c.title} · {c.optional ? 'Optional' : 'Required for the described feature'}</h3>
+          <p>{c.description}</p>
+          <dl><dt>Runs on</dt><dd>{c.runsOn}</dd><dt>Platforms</dt><dd>{c.platforms.join(', ')}</dd><dt>Requirements</dt><dd>{c.requirements.join('; ')}</dd><dt>Reads</dt><dd>{c.dataAccess.join('; ')}</dd><dt>Permissions</dt><dd>{c.privileges}</dd></dl>
+          <p>After installing the plugin, open Admin → Plugins → Companion services to download the bundle and setup guide. Both also ship in the version tarball below.</p>
+        </article>)}
+      </section>}
       <section aria-labelledby="versions-title">
         <h2 id="versions-title">Versions</h2>
         <table class="versions">

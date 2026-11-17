@@ -101,6 +101,9 @@ export function asksFor(perm, { name } = {}) {
   const pluginName = name ?? p.name ?? '';
   const sections = [];
 
+  const companions = arr(p.companions);
+  if (companions.length) sections.push({ id:'companions', title:'Companion services', lead:'Included services installed manually on another machine', items:companions.map(c=>({code:c.id,text:c.title+' — '+(c.optional?'optional; ':'')+c.runsOn})), notes:['Not installed or started by Octipus. Review the bundle and guide; uninstalling the plugin leaves external services unchanged.'] });
+
   const tools = arr(p.tools);
   sections.push({
     id: 'tools',

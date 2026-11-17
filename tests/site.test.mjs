@@ -46,6 +46,26 @@ test('an empty marketplace', () => {
   assertCleanPages(assert, out);
 });
 
+test('companion services explain their target, data access and separate deployment', () => {
+  const out=join(tmp,'companions');
+  const companion={"id":"host-collector","title":"Host telemetry collector","description":"Optional read-only service providing CPU, RAM and AMD GPU metrics. Engine metrics work without it.","optional":true,"runsOn":"The Linux machine hosting the engine; use the physical host for physical RAM readings","platforms":["linux"],"requirements":["Python 3.9 or newer","systemd 247 or newer","Readable Linux procfs and AMD DRM sysfs for GPU readings"],"dataAccess":["CPU and RAM counters from /proc","AMD GPU counters from /sys","Optional process RSS and cgroup memory counters"],"privileges":"Administrator installs the service and provisions its credential. Runtime uses an unprivileged dynamic user with read-only system access.","installation":"manual","bundle":"collector/llama-monitor-collector.tar.gz","guide":"collector/README.md"};
+  const record={...rec('1.0.0','2026-11-01T00:00:00Z'),apiVersion:'1.1.0',permissions:{...permissions,apiVersion:'1.1.0',companions:[companion]}};
+  const index=buildIndex({
+    published:{reader:{'1.0.0':record}},
+    sources:{reader:{listing:JSON.parse(readFileSync(join(fixture,'marketplace.json'),'utf8')),readme:'Fixture with companion',changelog:'## 1.0.0'}},
+    revoked:{packages:[],keys:[]},generatedAt:'2026-11-10T00:00:00Z',expires:'2026-12-10T00:00:00Z',
+  });
+  const indexFile=join(tmp,'companions-index.json');writeFileSync(indexFile,serializeIndex(index));
+  buildSite(out,indexFile);
+  const page=readFileSync(join(out,'reader','index.html'),'utf8');
+  assert.match(page,/Companion services/);
+  assert.match(page,/Host telemetry collector/);
+  assert.match(page,/CPU and RAM counters/);
+  assert.match(page,/does not start, update or remove/);
+  assert.match(page,/download the bundle and setup guide/);
+  assertCleanPages(assert,out);
+});
+
 test('with fixture data', () => {
   const out = join(tmp, 'fixture');
   const index = buildIndex({

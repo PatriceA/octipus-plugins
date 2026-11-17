@@ -89,6 +89,18 @@ const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 /** Any control character, or a bidirectional or invisible formatting one (Octipus's `line()`). */
+// Same bounded, descriptive companion contract as Octipus API 1.1.
+function companionOk(c) {
+  const keys = ['id','title','description','optional','runsOn','platforms','requirements','dataAccess','privileges','installation','bundle','guide'];
+  const text = (s, n) => typeof s === 'string' && s.length > 0 && s.length <= n && !BAD_TEXT.test(s);
+  const path = (s, ext) => text(s, 300) && s.endsWith(ext) && s.split('/').every(p => /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}$/.test(p) && p !== '..');
+  return isObj(c) && Object.keys(c).join(',') === keys.join(',')
+    && /^[a-z][a-z0-9-]{0,39}$/.test(c.id) && text(c.title,80) && text(c.description,1000)
+    && typeof c.optional === 'boolean' && text(c.runsOn,300)
+    && Array.isArray(c.platforms) && c.platforms.length > 0 && c.platforms.length <= 3 && c.platforms.every(p => ['linux','macos','windows'].includes(p))
+    && ['requirements','dataAccess'].every(k => Array.isArray(c[k]) && c[k].length > 0 && c[k].length <= 12 && c[k].every(s => text(s,300)))
+    && text(c.privileges,500) && c.installation === 'manual' && path(c.bundle,'.tar.gz') && path(c.guide,'.md');
+}
 const BAD_TEXT = /[\u0000-\u001F\u007F-\u009F؜​-‏‪-‮⁦-⁩﻿]/;
 
 /**
@@ -108,7 +120,8 @@ export function permissionsProblems(p) {
     return bad('permissions are in the old shape (pages a count, prompt or context a boolean), which hosts refuse: they come from an Octipus CLI older than the pinned OCTIPUS_REF');
   }
   const keys = Object.keys(p);
-  if (keys.join(',') !== PERMISSION_KEYS.join(',')) return bad(`permissions must have exactly ${PERMISSION_KEYS.join(', ')}, in that order, as the pinned CLI prints them (has ${keys.join(', ')})`);
+  const expectedKeys = p.companions === undefined ? PERMISSION_KEYS : [...PERMISSION_KEYS, 'companions'];
+  if (keys.join(',') !== expectedKeys.join(',')) return bad(`permissions must have exactly ${PERMISSION_KEYS.join(', ')}, in that order, as the pinned CLI prints them (has ${keys.join(', ')})`);
   const text = (v, max) => typeof v === 'string' && v.length <= max && !BAD_TEXT.test(v);
   const list = (v, max) => Array.isArray(v) && v.length <= max;
   for (const k of NAME_LIST_KEYS) if (!(list(p[k], 100) && p[k].every((x) => text(x, 100) && x.length > 0))) out.push(`permissions.${k}`);
@@ -152,6 +165,7 @@ export function permissionsProblems(p) {
   }
   if (typeof p.trustedInput !== 'boolean') out.push('permissions.trustedInput');
   if (![1, 2, 3, 4].includes(p.maxProtection)) out.push('permissions.maxProtection');
+  if (p.companions !== undefined && (!list(p.companions, 10) || !p.companions.length || !p.companions.every(companionOk) || new Set(p.companions.map(c => c.id)).size !== p.companions.length)) out.push('permissions.companions');
   if (out.length) return out;
   // The CLI validates the manifest first: a store comes with a store scope, and a store scope with a store.
   if ((p.store !== null) !== p.host.some((s) => STORE_SCOPES.includes(s))) {
@@ -213,6 +227,7 @@ function canonicalBase(p) {
       .sort((a, b) => byCodeUnit(a.id, b.id)),
     trustedInput: p.trustedInput,
     maxProtection: p.maxProtection,
+    ...(p.companions ? { companions: [...p.companions].sort((a, b) => byCodeUnit(a.id, b.id)) } : {}),
   };
 }
 
@@ -256,6 +271,15 @@ export function diffPermissions(before, after) {
   }
   const changes = [];
   const add = (kind, change, text, widens) => changes.push({ kind, change, text, widens });
+
+  const oldC = new Map((before.companions ?? []).map(c => [c.id, c]));
+  const newC = new Map((after.companions ?? []).map(c => [c.id, c]));
+  for (const [id, c] of newC) {
+    const old = oldC.get(id);
+    if (!old) add('companions', 'added', 'companion service ' + id + ' (manual installation)', true);
+    else if (JSON.stringify(old) !== JSON.stringify(c)) add('companions', 'changed', 'companion service ' + id + ' metadata or bundle path', true);
+  }
+  for (const id of oldC.keys()) if (!newC.has(id)) add('companions', 'removed', 'companion service ' + id, false);
 
   // The marketplace carries sandboxed packages only: any other runtime widens.
   if (before.runtime !== after.runtime) add('runtime', 'changed', `runtime ${before.runtime} → ${after.runtime}`, after.runtime !== 'package');
@@ -409,6 +433,7 @@ function describeAll(a) {
   for (const d of a.dashboards ?? []) {
     lines.push(`dashboard ${d.id} ("${d.title}"): ${d.widgets.map((w) => `${w.id} (${w.type}) ← ${w.tool}${w.input !== undefined ? ` ${JSON.stringify(w.input)}` : ''}`).join('; ')}`);
   }
+  for (const c of a.companions ?? []) lines.push('companion service ' + c.id + ' (manual installation on ' + c.runsOn + ')');
   if (a.trustedInput) lines.push('model.trustedInput');
   lines.push(`maxProtection ${a.maxProtection}`);
   return lines;
