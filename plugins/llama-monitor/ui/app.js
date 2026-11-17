@@ -276,4 +276,22 @@ async function initialize(){
  });
 }
 $('retry-load').addEventListener('click',initialize);
+$('discover-connections').addEventListener('click',()=>run(async()=>{
+ const result=await call('connection_options',{});
+ const engines=result.connections.filter(c=>c.paths.includes('/health')||c.paths.includes('/metrics'));
+ const telemetry=result.connections.filter(c=>c.paths.includes('/telemetry'));
+ for(const [id,list] of [['approved-engine',engines],['approved-telemetry',telemetry]]) {
+  const select=$(id);select.textContent='';const blank=document.createElement('option');blank.value='';blank.textContent=id==='approved-engine'?'Choose…':'None';select.append(blank);
+  for(const c of list){const option=document.createElement('option');option.value=c.id;option.textContent=c.id+' · '+c.origin;option.dataset.origin=c.origin;select.append(option);}
+ }
+ $('engine-picker').hidden=false;$('telemetry-picker').hidden=false;
+ if(!engines.length)throw new Error('No engine health reads are approved. Open plugin setup and choose an engine connection.');
+}));
+$('approved-engine').addEventListener('change',()=>{
+ const option=$('approved-engine').selectedOptions[0];
+ if(!option.value)return;
+ $('connection').value=option.value;$('url').value=option.dataset.origin;
+ if(!$('name').value)$('name').value=option.value;
+});
+$('approved-telemetry').addEventListener('change',()=>{$('telemetry-connection').value=$('approved-telemetry').value;});
 initialize();

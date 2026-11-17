@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { buildCollectorRequest, InputError, normaliseTickets, validateProfile, validateRunSettings } from './lib/profile.mjs';
 import { reconcile } from './lib/reconcile.mjs';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const RUN_ID = /^[0-9a-f-]{36}$/i;
 const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 
@@ -26,6 +26,8 @@ export const TOOLS = [
   { name: 'profile_get', description: 'Read one saved profile.', inputSchema: obj({ id: s('Profile id') }, ['id']) },
   { name: 'profile_save', description: 'Save (create or replace) a reusable profile: environment, workspace root, repositories with source/release/testing branches and baseline, products, tracker and forge connections, ticket and status policies.', inputSchema: obj({ profile: { type: 'object', description: 'The profile (see the page for the format)' } }, ['profile']) },
   { name: 'profile_delete', description: 'Delete a saved profile.', inputSchema: obj({ id: s('Profile id') }, ['id']) },
+  { name: 'setup_check', description: 'Check collector configuration without changing services.', inputSchema: obj({}) },
+  { name: 'profile_resources', description: 'Choose repositories and refs within approved folders.', inputSchema: obj({environmentId:s('Environment'),root:s('Approved folder'),repository:s('Repository path')}) },
   { name: 'collector_options', description: 'Your execution environments, approved folders and connections the evidence collector may use.', inputSchema: obj({}) },
   {
     name: 'audit_start',
@@ -119,6 +121,16 @@ export const HANDLERS = {
   async profile_delete(args, meta) {
     await host(meta, 'store:write', 'DELETE', `/store/${profileKey(idOf(args.id, PROFILE_ID, 'Profile id'))}`);
     return { deleted: true, id: args.id };
+  },
+  async setup_check(_args, meta) {
+    const options=await host(meta,'repos:collect','GET','/collector/environments');
+    return {ok:options.environments.length>0 && options.connections.length>0,message:options.environments.length && options.connections.length?'Collector access is configured. Save a profile to compare its repositories and tracker.':'Choose approved folders and connections in plugin setup.'};
+  },
+  async profile_resources(args, meta) {
+    if(!args.environmentId && !args.root) return host(meta,'repos:collect','GET','/collector/environments');
+    if(typeof args.environmentId!=='string' || typeof args.root!=='string' || args.repository!==undefined && typeof args.repository!=='string') throw new ToolError('Choose an environment and folder.');
+    const query=new URLSearchParams({environmentId:args.environmentId,root:args.root,...(args.repository?{repository:args.repository}:{})});
+    return host(meta,'repos:collect','GET','/collector/repositories?'+query);
   },
   async collector_options(_args, meta) {
     return host(meta, 'repos:collect', 'GET', '/collector/environments');

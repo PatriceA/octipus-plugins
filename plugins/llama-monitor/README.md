@@ -2,7 +2,7 @@
 
 A dependency-free Octipus plugin: saved engines, a live dashboard and on-demand monitoring sessions. Source is unsigned; maintainer reviews and signs it for the marketplace.
 
-**Requires Octipus plugin manifest API 1.1**, including companion-service downloads, plus the approved-connection bridge and shared theme support. Release the matching Octipus host before publishing; pin its released version/commit in marketplace tooling. Older hosts reject this manifest instead of silently hiding companion setup.
+**Requires Octipus plugin manifest API 1.2**, including companion-service downloads, plus the approved-connection bridge and shared theme support. Release the matching Octipus host before publishing; pin its released version/commit in marketplace tooling. Older hosts reject this manifest instead of silently hiding companion setup.
 
 ## Dashboard
 
@@ -24,14 +24,16 @@ Enable `llama-server --metrics`. Do not restart a production engine until its us
 
 In **Secrets → Connect API**, configure a named connection such as `engine_api`, using your engine's authentication. Approve GET and your engine origin (example: `https://engine.example.com`), prefix `/`. Internal destinations require admin approval. TLS settings stay controlled by that connection.
 
-In plugin admin settings, set **Approved connection paths (JSON)**:
+Open the plugin's **Set up / check** flow. Select the engine connection and the **llama.cpp
+engine** path preset; optionally select a telemetry connection with **Host telemetry**. Review
+access and enable. The readiness check performs real approved GETs and reports any failure.
+On the dashboard choose **Choose connected services** to select the engine: its URL and
+connection name are filled automatically. Existing manual fields remain available.
 
-```json
-{
-  "engine_api": ["/health", "/v1/models", "/props", "/metrics"],
-  "host_metrics": ["/telemetry"]
-}
-```
+The telemetry companion still needs separate deployment on the host you want to monitor.
+Download it from the setup screen and follow its target-specific instructions; plugin
+installation never starts services on the workstation or assumes the engine is local.
+
 
 Only exact pairs work. Remove the collector entry if unused. For an engine behind a path prefix, include that prefix on all four paths. The saved engine URL's origin must match the connection origin. Router-mode metrics requiring `?model=` are not supported in this initial release; save individual llama-server worker endpoints instead.
 

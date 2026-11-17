@@ -16,6 +16,13 @@
     var channel = new MessageChannel();
     channel.port1.onmessage = function (event) {
       var data = event.data;
+      if(data && data.octipus==='theme') {
+        var map={'--bg':'--color-surface','--fg':'--color-on-surface','--muted':'--color-on-surface-variant','--line':'--color-outline-variant','--panel':'--color-surface-container','--accent':'--color-primary','--accent-fg':'--color-on-primary','--error':'--color-error','--ok':'--color-tertiary'};
+        Object.keys(map).forEach(function(key){var value=data.tokens&&data.tokens[map[key]];if(typeof value==='string')document.documentElement.style.setProperty(key,value);});
+        if(data.colorScheme==='dark'||data.colorScheme==='light')document.documentElement.style.colorScheme=data.colorScheme;
+        if(typeof data.fontFamily==='string')document.documentElement.style.fontFamily=data.fontFamily;
+        return;
+      }
       if (!data || data.octipus !== 'result' || typeof data.id !== 'number') return;
       var done = waiting.get(data.id);
       if (typeof done !== 'function') return;
@@ -78,10 +85,13 @@
     });
   }
 
+  var profileEditor = window.OctipusProfileEditor(callTool, showError);
+
   function useProfile(profile) {
     state.profile = profile;
     $('profile-json').value = JSON.stringify(profile, null, 2);
     renderVersions(profile);
+    profileEditor.load(profile);
   }
 
   async function refreshLists() {
@@ -159,6 +169,7 @@
       ? o.environments.map(function (e) { return e.name + ' — id ' + e.id + ' — folders: ' + (e.roots.join(', ') || 'none approved'); }).join('\n') + '\nConnections: ' + (o.connections.join(', ') || 'none approved')
       : 'No host execution environment of yours is available here.';
   }));
+  $('apply-profile-json').addEventListener('click', guard(async function () { profileEditor.load(JSON.parse($('profile-json').value)); }));
   $('save').addEventListener('click', guard(async function () {
     var parsed;
     try { parsed = JSON.parse($('profile-json').value); } catch (e) { throw new Error('The profile is not valid JSON: ' + e.message); }

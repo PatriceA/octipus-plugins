@@ -17,14 +17,15 @@
       <div class="row">
         <label for="profiles" class="label inline">Saved</label>
         <select id="profiles"><option value="">—</option></select>
-        <button type="button" id="load">Load</button>
+        <button type="button" id="load">Load</button><button type="button" id="new-profile">New profile</button>
         <button type="button" id="options">Environments &amp; approvals</button>
       </div>
     </div>
     <p id="options-out" class="hint" hidden></p>
-    <label for="profile-json" class="label">Profile JSON</label>
-    <textarea id="profile-json" rows="18" spellcheck="false"></textarea>
-    <div class="bar">
+    <div id="guided-profile" hidden><div id="profile-basics" class="guided-fields"></div><div id="profile-services" class="guided-fields"></div><button type="button" id="refresh-profile-options">Refresh resource choices</button><h3>Repositories and target versions</h3><div id="profile-repositories"></div><div class="bar"><button type="button" id="find-repositories">Find repositories</button><select id="repository-picker" aria-label="Repository to add"></select><button type="button" id="add-repository">Add repository</button></div></div>
+    <details><summary>Advanced profile JSON</summary><label for="profile-json" class="label">Profile JSON</label>
+    <textarea id="profile-json" rows="18" spellcheck="false"></textarea><button type="button" id="apply-profile-json">Use JSON in form</button>
+    </details><div class="bar">
       <button type="button" id="template">Insert example</button>
       <button type="button" id="delete">Delete</button>
       <button type="button" id="save" class="primary">Save profile</button>
@@ -63,6 +64,6 @@
     <details><summary>Raw report JSON</summary><pre id="raw" class="raw"></pre></details>
   </section>
 </main>
-<script src="app.js"></script>
+<script src="form-fields.js"></script><script src="profile-editor.js"></script><script src="app.js"></script>
 </body>
 </html>

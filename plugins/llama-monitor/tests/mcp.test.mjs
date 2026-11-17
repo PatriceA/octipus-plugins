@@ -13,7 +13,7 @@ test('MCP protocol and every declared tool return one bounded result',()=>{
  const r=spawnSync(process.execPath,['server.mjs'],{input:messages.map(m=>JSON.stringify({jsonrpc:'2.0',...m})).join('\n')+'\n',encoding:'utf8',timeout:5000});
  assert.equal(r.status,0,r.stderr);const replies=r.stdout.trim().split('\n').map(x=>JSON.parse(x));
  assert.deepEqual(replies.map(x=>x.id),[1,2,3,4,5]);
- assert.equal(replies[1].result.tools.length,3);
+ assert.equal(replies[1].result.tools.length,5);
  assert.equal(replies[2].result.isError,undefined);
  assert.equal(replies[3].result.isError,undefined);
  assert.equal(replies[4].result.isError,true);

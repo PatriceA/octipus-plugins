@@ -1,7 +1,7 @@
 {
   "name": "llama-monitor",
-  "version": "0.2.3",
-  "apiVersion": "1.1.0",
+  "version": "0.3.0",
+  "apiVersion": "1.2.0",
   "title": "llama.cpp Monitor",
   "description": "Save llama.cpp engines, inspect model and host telemetry, and record monitoring sessions with low, peak and average readings.",
   "runtime": "package",
@@ -23,6 +23,14 @@
     "summarize_session": {
       "effect": "read",
       "description": "Calculate session statistics from supplied telemetry samples."
+    },
+    "setup_check": {
+      "effect": "read",
+      "description": "Check setup readiness without changing the connected services"
+    },
+    "connection_options": {
+      "effect": "read",
+      "description": "List the connection origins and exact paths approved for this plugin; no credentials"
     }
   },
   "host": [
@@ -30,7 +38,15 @@
     "store:write",
     "connections:read"
   ],
-  "settings": [{"key":"connection_grants","label":"Approved connection paths (JSON)","type":"textarea","required":true,"help":"Admin-approved exact GET paths, for example engine_api: /health, /v1/models, /props, /metrics; optional host_metrics: /telemetry. Replace example connection names with your own. Calling users also need permission in Secrets → Connect API."}],
+  "settings": [
+    {
+      "key": "connection_grants",
+      "label": "Approved connection paths (JSON)",
+      "type": "textarea",
+      "required": true,
+      "help": "Admin-approved exact GET paths, for example engine_api: /health, /v1/models, /props, /metrics; optional host_metrics: /telemetry. Replace example connection names with your own. Calling users also need permission in Secrets \u2192 Connect API."
+    }
+  ],
   "companions": [
     {
       "id": "host-collector",
@@ -70,5 +86,33 @@
         "entry": "index.html"
       }
     ]
+  },
+  "setup": {
+    "resources": [
+      {
+        "setting": "connection_grants",
+        "kind": "http-grants",
+        "presets": [
+          {
+            "label": "llama.cpp engine",
+            "paths": [
+              "/health",
+              "/props",
+              "/metrics",
+              "/v1/models"
+            ]
+          },
+          {
+            "label": "Optional host telemetry",
+            "paths": [
+              "/telemetry"
+            ]
+          }
+        ]
+      }
+    ],
+    "check": {
+      "tool": "setup_check"
+    }
   }
 }

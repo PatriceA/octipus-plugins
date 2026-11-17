@@ -6,13 +6,17 @@ The plugin never merges, tags, deploys or changes tracker tickets. Octipus colle
 
 ## Set up
 
-Requires Octipus plugin API 1.1 with `repos:collect` support. Install disabled, review its content hash and requested host scopes, then configure:
+Requires Octipus plugin API 1.2 with `repos:collect` support. Open **Set up / check**:
+select approved repository folders and existing tracker/Git/forge connections, explicitly
+choose the evidence classification, review access, then enable. Unsupported classifications
+are rejected before installation; never lower classification merely to fit the page.
 
-- `collector_roots`: approved repository folders, one per line or comma separated. They must also be approved by your execution environment.
-- `collector_connections`: approved Git-fetch, tracker and forge connection names. Users must already have access to those connections.
-- `collector_protection_level`: the classification of collected evidence, from 1 to 4. Do not lower it to fit a client; data above a client's supported level is withheld.
-
-Enable the reviewed package and open its Release audit page. Create a profile with the environment ID, repository workspace, repository paths, source/release/testing branches, baseline tags or immutable commit IDs, tracker rules and optional forge configuration. Profiles and audit records are private to the calling user and workspace.
+On the Release audit page choose **New profile**, then select your workstation environment,
+folder, connections and discovered repositories. Branch/tag selectors use saved local refs;
+no fetch is performed during setup. Add product names, target versions and tracker rules,
+then save. Profiles and audit records are private to the calling user and workspace.
+Repository folders and connections remain subject to current environment and plugin grants.
+The optional Advanced profile JSON editor remains available for complex mappings.
 
 A generic repository entry looks like:
 
