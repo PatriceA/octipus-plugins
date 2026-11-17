@@ -32,6 +32,16 @@ screenshots you name in `marketplace.json` live in the directory too.
 - **Source, never a prebuilt tarball.** Publishing rebuilds the package from
   the reviewed source and checks the hash, so what is signed is what was
   reviewed.
+- **Companion services (manifest API 1.1).** Declare external services in
+  `companions`, including their purpose, target machine, requirements, data
+  access, privileges, package-relative `.tar.gz` bundle and `.md` guide.
+  Installation is manual; a declaration never grants host deployment access.
+  Keep all companion source beside its archive and test that rebuilding gives
+  identical bytes. Add a narrow `.gitignore` exception for that reviewed
+  archive. This is an internal component of the source package, not a prebuilt
+  replacement for the plugin package. Do not include credentials or local
+  operator configuration. A new companion or changed metadata needs review.
+  Release compatible Octipus support and update `OCTIPUS_REF` before publishing.
 - **Dependency-free or vendored code.** A package installs as it is: no
   `npm install` runs on the host. Vendor what you need, or bundle the server
   into one file. A `package.json` may hold scripts, not `dependencies`.

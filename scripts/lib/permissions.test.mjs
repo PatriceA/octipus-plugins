@@ -4,6 +4,7 @@ import { assertPermissions, diffPermissions, formatStoreBytes, networkWarnings, 
 import { withStore } from '../../tests/fixtures/permissions.mjs';
 
 const H = (c) => c.repeat(64);
+const companion = {"id":"host-collector","title":"Host telemetry collector","description":"Optional read-only service providing CPU, RAM and AMD GPU metrics. Engine metrics work without it.","optional":true,"runsOn":"The Linux machine hosting the engine; use the physical host for physical RAM readings","platforms":["linux"],"requirements":["Python 3.9 or newer","systemd 247 or newer","Readable Linux procfs and AMD DRM sysfs for GPU readings"],"dataAccess":["CPU and RAM counters from /proc","AMD GPU counters from /sys","Optional process RSS and cgroup memory counters"],"privileges":"Administrator installs the service and provisions its credential. Runtime uses an unprivileged dynamic user with read-only system access.","installation":"manual","bundle":"collector/llama-monitor-collector.tar.gz","guide":"collector/README.md"};
 
 // The CLI's shape (octi plugin permissions --json) at the pinned OCTIPUS_REF.
 const base = {
@@ -31,6 +32,14 @@ const withP = (over = {}) => {
 };
 const widening = (d) => d.changes.filter((c) => c.widens).map((c) => c.text);
 const texts = (d) => d.changes.map((c) => `${c.widens ? '+' : '-'} ${c.text}`);
+
+test('companion metadata passes canonical listing checks and changes require review', () => {
+ const p={...base,companions:[companion]};
+ assert.deepEqual(permissionsProblems(p),[]);
+ assert.equal(diffPermissions(base,p).changes[0].kind,'companions');
+ assert.equal(diffPermissions(base,p).widened,true);
+ assert.match(permissionsProblems({...p,companions:[{...companion,bundle:'../bad.tar.gz'}]}).join(),/companions/);
+});
 
 test('the CLI shape passes; the key order is the CLI\'s', () => {
   assert.deepEqual(permissionsProblems(base), []);
