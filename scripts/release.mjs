@@ -135,10 +135,14 @@ async function validatorCheckout(stateDir) {
   const destination = join(stateDir, 'validator', ref);
   if (!existsSync(join(destination, '.git'))) {
     mkdirSync(dirname(destination), { recursive: true });
-    const sibling = resolve(ROOT, '..', 'octipus');
-    await command('git', ['clone', '--quiet', '--no-checkout', '--no-hardlinks', existsSync(join(sibling, '.git')) ? sibling : 'https://github.com/PatriceA/octipus.git', destination]);
+    await command('git', ['clone', '--quiet', '--no-checkout', 'https://github.com/PatriceA/octipus.git', destination]);
     await command('git', ['checkout', '--quiet', '--detach', ref], { cwd: destination });
   }
+  // A local clone can have a stale local main even when its remote-tracking main is current.
+  // Resolve the reviewed pin against the official main, never a workstation feature branch.
+  await command('git', ['remote', 'set-url', 'origin', 'https://github.com/PatriceA/octipus.git'], { cwd: destination });
+  await command('git', ['fetch', '--quiet', 'origin', 'main'], { cwd: destination });
+  await command('git', ['merge-base', '--is-ancestor', ref, 'origin/main'], { cwd: destination });
   const head = await command('git', ['rev-parse', 'HEAD'], { cwd: destination, capture: true });
   const dirty = await command('git', ['status', '--porcelain'], { cwd: destination, capture: true });
   if (head !== ref || dirty) throw Error('The cached validator changed. Remove that managed validator directory and retry.');
