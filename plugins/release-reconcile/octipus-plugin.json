@@ -1,0 +1,101 @@
+{
+  "name": "release-reconcile",
+  "version": "0.1.0",
+  "apiVersion": "1.1.0",
+  "title": "Release reconciliation",
+  "description": "Read-only first-step release audit: compares tracker tickets and their target versions with the exact commits, merge requests and branches of your repositories, and flags version-without-code, code-without-version, source-only and partial deliveries, ancestry versus tree drift, reverts, unticketed and ambiguous commits. Evidence is collected by Octipus (repos:collect); unknown stays unknown.",
+  "publisher": "Octipus",
+  "server": {
+    "command": "node",
+    "args": [
+      "server.mjs"
+    ],
+    "requestTimeoutMs": 30000
+  },
+  "tools": {
+    "profile_list": {
+      "effect": "read",
+      "description": "List your saved release-audit profiles"
+    },
+    "profile_get": {
+      "effect": "read",
+      "description": "Read one saved profile"
+    },
+    "profile_save": {
+      "effect": "write",
+      "description": "Save a reusable release-audit profile for you in this workspace"
+    },
+    "profile_delete": {
+      "effect": "write",
+      "description": "Delete one of your saved profiles"
+    },
+    "collector_options": {
+      "effect": "read",
+      "description": "List your environments, approved folders and connections for evidence collection"
+    },
+    "audit_start": {
+      "effect": "write",
+      "description": "Start a read-only release audit in the background (fetches audit refs only, reads Git history and tracker data)"
+    },
+    "audit_status": {
+      "effect": "read",
+      "description": "Read an audit run and, once done, its reconciliation report"
+    },
+    "audit_list": {
+      "effect": "read",
+      "description": "List your recent audit runs"
+    },
+    "audit_cancel": {
+      "effect": "write",
+      "description": "Cancel one of your running audits"
+    }
+  },
+  "host": [
+    "repos:collect",
+    "store:read",
+    "store:write"
+  ],
+  "store": {
+    "quotaBytes": 2097152
+  },
+  "settings": [
+    {
+      "key": "collector_roots",
+      "label": "Approved repository folders",
+      "type": "textarea",
+      "required": true,
+      "help": "Absolute folders, one per line or comma-separated. A repository must also lie inside the user's execution environment folders."
+    },
+    {
+      "key": "collector_connections",
+      "label": "Approved connections",
+      "type": "text",
+      "required": true,
+      "help": "Connection ids (Git fetch, issue tracker, forge), comma-separated. Each must also be available to the user."
+    },
+    {
+      "key": "collector_protection_level",
+      "label": "Evidence protection level",
+      "type": "select",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "required": true,
+      "help": "Classification of collected evidence (1\u20134). This custom page supports Level 1 only; higher-level results are withheld."
+    }
+  ],
+  "ui": {
+    "pages": [
+      {
+        "path": "audit",
+        "title": "Release audit",
+        "icon": "git-compare",
+        "entry": "index.html"
+      }
+    ]
+  },
+  "maxProtection": 1
+}

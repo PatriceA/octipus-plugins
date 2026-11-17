@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Release audit</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <!-- No form element: a sandboxed frame without allow-forms never submits one. -->
+  <h1>Release audit</h1>
+  <p class="hint">Read-only first step of a release: tickets and target versions against the exact commits, merge requests and branches. Octipus collects the evidence; nothing is merged, tagged, built, deployed or written to the tracker. Incomplete evidence is reported as unknown.</p>
+
+  <section class="panel" aria-labelledby="h-profile">
+    <div class="row head"><h2 id="h-profile">1 · Profile (reusable)</h2>
+      <div class="row">
+        <label for="profiles" class="label inline">Saved</label>
+        <select id="profiles"><option value="">—</option></select>
+        <button type="button" id="load">Load</button>
+        <button type="button" id="options">Environments &amp; approvals</button>
+      </div>
+    </div>
+    <p id="options-out" class="hint" hidden></p>
+    <label for="profile-json" class="label">Profile JSON</label>
+    <textarea id="profile-json" rows="18" spellcheck="false"></textarea>
+    <div class="bar">
+      <button type="button" id="template">Insert example</button>
+      <button type="button" id="delete">Delete</button>
+      <button type="button" id="save" class="primary">Save profile</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-run">
+    <div class="row head"><h2 id="h-run">2 · This release</h2></div>
+    <p class="hint">Target version per product. Save the profile to keep these defaults; each audit records its own chosen versions.</p>
+    <div id="versions" class="versions"></div>
+    <div class="bar">
+      <label><input type="checkbox" id="include-testing" checked> compare testing branches</label>
+      <label><input type="checkbox" id="fetch" checked> fetch audit refs first</label>
+      <button type="button" id="start" class="primary">Start audit</button>
+    </div>
+    <div class="bar">
+      <label for="runs" class="label inline">Recent runs</label>
+      <select id="runs"><option value="">—</option></select>
+      <button type="button" id="open">Open</button>
+      <button type="button" id="cancel">Cancel run</button>
+    </div>
+  </section>
+
+  <p id="status" role="status" aria-live="polite"></p>
+  <div id="error" role="alert" hidden></div>
+
+  <section id="report" class="panel" hidden aria-labelledby="h-report">
+    <div class="row head"><h2 id="h-report">3 · Report</h2><span id="report-meta" class="hint"></span></div>
+    <div id="banner" class="banner"></div>
+    <h3>Findings</h3>
+    <table><thead><tr><th scope="col">Severity</th><th scope="col">Kind</th><th scope="col">Detail</th></tr></thead><tbody id="findings"></tbody></table>
+    <h3>Tickets</h3>
+    <table><thead><tr><th scope="col">Ticket</th><th scope="col">Summary / status</th><th scope="col">Versions</th><th scope="col">Verdicts</th><th scope="col">Evidence (repo@branch sha · MR · how)</th></tr></thead><tbody id="tickets"></tbody></table>
+    <h3>Repositories</h3>
+    <table><thead><tr><th scope="col">Repo</th><th scope="col">Refs (immutable SHA, time)</th><th scope="col">Branch checks</th><th scope="col">Problems</th></tr></thead><tbody id="repos"></tbody></table>
+    <details><summary>Raw report JSON</summary><pre id="raw" class="raw"></pre></details>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

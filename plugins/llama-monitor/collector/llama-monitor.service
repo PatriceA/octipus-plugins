@@ -1,0 +1,21 @@
+[Unit]
+Description=llama.cpp Monitor host telemetry
+After=network.target
+
+[Service]
+DynamicUser=yes
+Environment=COLLECTOR_LISTEN=127.0.0.1
+Environment=COLLECTOR_PORT=9187
+EnvironmentFile=-/etc/llama-monitor/collector.conf
+LoadCredential=token:/etc/llama-monitor/token
+ExecStart=/usr/bin/python3 /opt/llama-monitor/collector.py --listen ${COLLECTOR_LISTEN} --port ${COLLECTOR_PORT} --credential-file %d/token
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
