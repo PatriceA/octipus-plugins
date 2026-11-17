@@ -28,6 +28,31 @@ site/                      the Astro site, in the octipus.cc design (site/src/de
 .github/                   CODEOWNERS; workflows pr.yml, pr-report.yml, build.yml, site.yml, test.yml
 ```
 
+## Install or publish
+
+Users install plugins from **Administration → Plugin packages → Marketplace**. Choose a
+package, connect existing resources in its setup flow, review access, then install and test.
+A private local plugin follows the same flow and needs no signing keys.
+
+Marketplace maintainers run one local command from this repository:
+
+```sh
+node scripts/release.mjs
+```
+
+First use asks for existing encrypted signing-key and root-public-key file paths, and the
+publishing destination. These choices are saved outside the repository; passphrases are never
+saved. The assistant prepares the exact Node runtime and pinned validator, checks prerequisites,
+compares CI, prepares every package, asks once to review/sign the batch, assembles the site,
+asks before publication, and verifies the live artifacts and publication record.
+Keys remain on the publisher's machine. Never send a key or passphrase to an agent or chat.
+
+If interrupted, run the same command. It checks earlier effects and resumes unfinished stages;
+a lost publication response is verified before another transfer. `--status` shows progress,
+`--configure` changes publisher settings, and `--new` archives unfinished local preparation.
+An uncertain publication must be reconciled first. Older manual build/sign/finish commands
+below remain available for offline key sessions and advanced workflows.
+
 ## Trust, in one paragraph
 
 Four boundaries are hard: the sandbox a host runs a plugin in, the

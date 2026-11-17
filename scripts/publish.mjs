@@ -572,7 +572,7 @@ async function main() {
   const { values } = parseArgs({
     args: rest,
     options: {
-      out: { type: 'string' }, plan: { type: 'string' },
+      out: { type: 'string' }, plan: { type: 'string' }, workspace: { type: 'string' },
       'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'keys-from': { type: 'string' }, 'previous-keys-from': { type: 'string' }, 'root-pub': { type: 'string', multiple: true },
       'build-record': { type: 'string' }, stats: { type: 'string' }, 'skip-ci-compare': { type: 'boolean' }, 'confirm-bypass': { type: 'string' }, 'resign-to': { type: 'string' },
       'github-repo': { type: 'string' }, 'no-fetch': { type: 'boolean' }, 'base-url': { type: 'string' }, 'index-expires-days': { type: 'string' },
@@ -599,7 +599,7 @@ async function main() {
       ...(values['index-expires-days'] !== undefined ? { indexExpiresDays: Number(values['index-expires-days']) } : {}),
     });
   } else if (cmd === 'finish') {
-    await publishFinish({ root, planFile: values.plan, stats: values.stats, out: values.out ? resolve(values.out) : undefined, ...(rootPubs ? { rootPubs } : {}), fetch: values['no-fetch'] !== true });
+    await publishFinish({ root: values.workspace ? resolve(values.workspace) : root, planFile: values.plan, stats: values.stats, out: values.out ? resolve(values.out) : undefined, ...(rootPubs ? { rootPubs } : {}), fetch: values['no-fetch'] !== true });
   } else {
     stop('npm run publish -- build … | finish --plan release/release-plan.json (signing is node scripts/sign.mjs)');
   }

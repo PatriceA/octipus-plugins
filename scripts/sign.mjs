@@ -668,7 +668,7 @@ function lastPublishCommit(repo) {
 }
 
 export async function sign(opts) {
-  const { repo = REPO, planFile, key, rootPubs = [], passphraseFile, yes = false, retry = false, keysFrom = LIVE_KEYS, indexFrom = LIVE_INDEX, noPreviousIndex = false, previousKeysFrom, ciContentHash = [], gh = 'gh', githubRepo = GITHUB_REPO, env = process.env, log = (m) => process.stderr.write(`${m}\n`), now = new Date() } = opts;
+  const { repo = REPO, planFile, key, rootPubs = [], passphraseFile, yes = false, batch = false, confirmBatch, retry = false, keysFrom = LIVE_KEYS, indexFrom = LIVE_INDEX, noPreviousIndex = false, previousKeysFrom, ciContentHash = [], gh = 'gh', githubRepo = GITHUB_REPO, env = process.env, log = (m) => process.stderr.write(`${m}\n`), now = new Date() } = opts;
   // 1. The CLI and the repository.
   const cli = pinnedCli({ repo, env });
   log(`Octipus CLI: ${cli.dir} at ${cli.ref} (clean, on origin/main)`);
@@ -731,12 +731,6 @@ export async function sign(opts) {
     log(`\nChanged outside plugins/<name>/ since ${plan.lastPublishCommit ? `the last publish (${since.slice(0, 12)})` : 'the first commit'}:\n${stat || '  (nothing)'}\n`);
     if (plan.ciCompare.mode === 'bypass') log(loud(['The CI compare was BYPASSED when this plan was built:', `  ${stable(plan.ciCompare).slice(0, 300)}`]));
 
-    // The passphrase.
-    let passphrase;
-    if (passphraseFile === '-') { if (!yes) stop('--passphrase-file - reads stdin: pass --yes too (there is no terminal left to confirm on)'); passphrase = await readStdin(); } else if (passphraseFile) passphrase = readRegular(resolve(passphraseFile), 4096).toString('utf8');
-    else passphrase = await askLine('Passphrase for the signing key: ', { hidden: true });
-    if (yes) log(loud(['--yes: every package below is signed WITHOUT asking you.']));
-
     // The index template (filled in at 6.), read first: each package's
     // permissions in it are checked against the CLI's at 5.
     const tBytes = readRegular(join(planDir, plan.index.template), 2 * 1024 * 1024);
@@ -757,6 +751,7 @@ export async function sign(opts) {
     // 5. Each package.
     const out = prepareSigningOutput(planDir, { retry, log });
     const records = [];
+    const prepared = [];
     let signingKeyId = null;
     for (const p of plan.packages) {
       const gz = readRegular(join(planDir, safeRel(p.tarball)));
@@ -810,7 +805,24 @@ export async function sign(opts) {
         `   tarball       sha256 ${p.sha256} (unsigned)`,
         `   permissions   ${JSON.stringify(perm, null, 2).split('\n').join('\n                 ')}`,
       ].join('\n'));
-      if (!yes) {
+      prepared.push({ p, dir });
+    }
+    // Validate every package before one batch approval and before any signature.
+    if (batch && !yes) {
+      log(`\nRelease review: ${prepared.length} package(s), plus the marketplace index.`);
+      log(prepared.map(({ p }) => `  ${p.name} ${p.version} — ${p.contentHash}`).join('\n'));
+      log(`Index template: ${plan.index.sha256}; expires ${template.expires}. Nothing is uploaded by signing.`);
+      const approved = confirmBatch ? await confirmBatch(plan) : /^(y|yes)$/i.test((await askLine('Sign this reviewed release and its index? [y/N] ') ?? '').trim());
+      if (!approved) stop('Signing cancelled. No signatures were created.');
+    }
+    // The passphrase.
+    let passphrase;
+    if (passphraseFile === '-') { if (!yes) stop('--passphrase-file - reads stdin: pass --yes too (there is no terminal left to confirm on)'); passphrase = await readStdin(); } else if (passphraseFile) passphrase = readRegular(resolve(passphraseFile), 4096).toString('utf8');
+    else passphrase = await askLine('Passphrase for the signing key: ', { hidden: true });
+    if (yes) log(loud(['--yes: every package below is signed WITHOUT asking you.']));
+
+    for (const { p, dir } of prepared) {
+      if (!yes && !batch) {
         const a = await askLine(`Sign ${p.name} ${p.version}? Type "sign ${p.name} ${p.version}": `);
         if (a.trim() !== `sign ${p.name} ${p.version}`) stop(`not confirmed: ${p.name} ${p.version} is not signed. Rerun the same signing command with --retry to preserve this incomplete attempt and try again.`);
       }
@@ -847,7 +859,7 @@ export async function sign(opts) {
     const fresh = anchorCheck(prev, index, plan, signingKeyId);
     log(`\nIndex: ${index.packages.length} versions at ${index.url}`);
     log(fresh.length ? `New revocations:\n${fresh.map((r) => `  - ${r.keyId ?? `${r.name} ${r.version}`}: ${r.reason}`).join('\n')}` : 'No new revocations.');
-    if (!yes) {
+    if (!yes && !batch) {
       const a = await askLine('Sign the index? Type "sign the index": ');
       if (a.trim() !== 'sign the index') stop('not confirmed: the index is not signed. Rerun the same signing command with --retry to preserve this incomplete attempt and try again.');
     }
@@ -873,13 +885,13 @@ async function main() {
     options: {
       plan: { type: 'string' }, key: { type: 'string' }, 'root-pub': { type: 'string', multiple: true }, 'passphrase-file': { type: 'string' },
       'ci-content-hash': { type: 'string', multiple: true }, 'github-repo': { type: 'string' },
-      yes: { type: 'boolean' }, retry: { type: 'boolean' }, 'keys-from': { type: 'string' }, 'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'previous-keys-from': { type: 'string' },
+      yes: { type: 'boolean' }, batch: { type: 'boolean' }, retry: { type: 'boolean' }, 'keys-from': { type: 'string' }, 'index-from': { type: 'string' }, 'no-previous-index': { type: 'boolean' }, 'previous-keys-from': { type: 'string' },
     },
   });
   refuseNpm();
   if (!values.plan) stop('--plan <release/release-plan.json> is required');
   await sign({
-    planFile: values.plan, key: values.key, rootPubs: values['root-pub'] ?? [], passphraseFile: values['passphrase-file'], yes: values.yes === true, retry: values.retry === true,
+    planFile: values.plan, key: values.key, rootPubs: values['root-pub'] ?? [], passphraseFile: values['passphrase-file'], yes: values.yes === true, batch: values.batch === true, retry: values.retry === true,
     keysFrom: values['keys-from'] ?? LIVE_KEYS, indexFrom: values['index-from'] ?? LIVE_INDEX, noPreviousIndex: values['no-previous-index'] === true, previousKeysFrom: values['previous-keys-from'],
     ciContentHash: values['ci-content-hash'] ?? [], githubRepo: values['github-repo'] ?? GITHUB_REPO,
   });
