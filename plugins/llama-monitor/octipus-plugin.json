@@ -1,0 +1,118 @@
+{
+  "name": "llama-monitor",
+  "version": "0.3.0",
+  "apiVersion": "1.2.0",
+  "title": "llama.cpp Monitor",
+  "description": "Save llama.cpp engines, inspect model and host telemetry, and record monitoring sessions with low, peak and average readings.",
+  "runtime": "package",
+  "server": {
+    "command": "node",
+    "args": [
+      "server.mjs"
+    ]
+  },
+  "tools": {
+    "read_engine": {
+      "effect": "read",
+      "description": "Read llama.cpp and host collector telemetry through exact admin-approved named connections."
+    },
+    "parse_snapshot": {
+      "effect": "read",
+      "description": "Normalize a supplied llama.cpp and collector snapshot without making network calls."
+    },
+    "summarize_session": {
+      "effect": "read",
+      "description": "Calculate session statistics from supplied telemetry samples."
+    },
+    "setup_check": {
+      "effect": "read",
+      "description": "Check setup readiness without changing the connected services"
+    },
+    "connection_options": {
+      "effect": "read",
+      "description": "List the connection origins and exact paths approved for this plugin; no credentials"
+    }
+  },
+  "host": [
+    "store:read",
+    "store:write",
+    "connections:read"
+  ],
+  "settings": [
+    {
+      "key": "connection_grants",
+      "label": "Approved connection paths (JSON)",
+      "type": "textarea",
+      "required": true,
+      "help": "Admin-approved exact GET paths, for example engine_api: /health, /v1/models, /props, /metrics; optional host_metrics: /telemetry. Replace example connection names with your own. Calling users also need permission in Secrets \u2192 Connect API."
+    }
+  ],
+  "companions": [
+    {
+      "id": "host-collector",
+      "title": "Host telemetry collector",
+      "description": "Optional read-only service providing CPU, RAM and AMD GPU metrics. Engine metrics work without it.",
+      "optional": true,
+      "runsOn": "The Linux machine hosting the engine; use the physical host for physical RAM readings",
+      "platforms": [
+        "linux"
+      ],
+      "requirements": [
+        "Python 3.9 or newer",
+        "systemd 247 or newer",
+        "Readable Linux procfs and AMD DRM sysfs for GPU readings"
+      ],
+      "dataAccess": [
+        "CPU and RAM counters from /proc",
+        "AMD GPU counters from /sys",
+        "Optional process RSS and cgroup memory counters"
+      ],
+      "privileges": "Administrator installs the service and provisions its credential. Runtime uses an unprivileged dynamic user with read-only system access.",
+      "installation": "manual",
+      "bundle": "collector/llama-monitor-collector.tar.gz",
+      "guide": "collector/README.md"
+    }
+  ],
+  "store": {
+    "quotaBytes": 5242880
+  },
+  "ui": {
+    "dir": "ui",
+    "pages": [
+      {
+        "path": "dashboard",
+        "title": "llama.cpp Monitor",
+        "icon": "activity",
+        "entry": "index.html"
+      }
+    ]
+  },
+  "setup": {
+    "resources": [
+      {
+        "setting": "connection_grants",
+        "kind": "http-grants",
+        "presets": [
+          {
+            "label": "llama.cpp engine",
+            "paths": [
+              "/health",
+              "/props",
+              "/metrics",
+              "/v1/models"
+            ]
+          },
+          {
+            "label": "Optional host telemetry",
+            "paths": [
+              "/telemetry"
+            ]
+          }
+        ]
+      }
+    ],
+    "check": {
+      "tool": "setup_check"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "../../schema/marketplace.schema.json",
+  "title": "llama.cpp Monitor",
+  "summary": "Saved engines, model and host telemetry, and on-demand sessions with low, peak and average statistics.",
+  "category": "developer",
+  "tags": [
+    "llama-cpp",
+    "monitoring",
+    "gpu",
+    "dashboard"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Patrice"
+  },
+  "homepage": "https://github.com/PatriceA/octipus-plugins/tree/main/plugins/llama-monitor",
+  "minOctipus": "0.7.0"
+}
