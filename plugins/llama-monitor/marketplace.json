@@ -13,5 +13,6 @@
   "author": {
     "name": "Patrice"
   },
-  "homepage": "https://github.com/PatriceA/octipus-plugins/tree/main/plugins/llama-monitor"
+  "homepage": "https://github.com/PatriceA/octipus-plugins/tree/main/plugins/llama-monitor",
+  "minOctipus": "0.7.0"
 }
